@@ -1,329 +1,238 @@
-# HTML Asset Toolkit Skill
+# HTML Asset Toolkit 🖼️
 
-> **v3.0.0 新增**：标签内联模式（`--css-js-mode tag`）、体积预估（`estimate_size.py`）、本地预览服务器（`serve_preview.py`）、框架专项示例（`examples/frameworks/`）。
+> 把课程演示 HTML、离线教学资源、交互式富文本 HTML、百宝箱 HTML，以及 React / Vue / Vite / CRA / Vue CLI / webpack 等静态构建产物，打包成**双击即开的单文件 HTML**。
 
-用于把课程演示 HTML、离线教学资源、交互式富文本 HTML、百宝箱 HTML，以及 React / Vue / Vite / Create React App / Vue CLI / webpack 等静态构建产物，打包成可以离线打开的单文件 HTML。
+[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)]()
+[![No Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
 
-核心目标：
+---
 
-```text
-普通课程 HTML：index.html + assets/ -> dist/index.single.html
-React/Vue 构建产物：npm run build 后的 dist/index.html 或 build/index.html -> index.single.html
-```
+## 为什么需要它？
 
-支持图片、SVG、MP3、MP4、WebM、GLB、STL、字体、PDF、CSS、JS、WASM 等资源的 Base64/Data URL 内嵌。v2.6.0 重点增强了 Vite/esbuild 打包后 JS 中反引号模板字符串路径的识别，例如 `` `/buildings/buildingA.jpg` ``。
+在 AI Native 时代，**单文件 HTML 是讲义和演示的最佳载体**：
 
-## 安装位置
+- 📱 **零依赖传播** — 微信/钉钉/飞书直接发送，无需服务器
+- 🎨 **富文本表现力** — 原生支持排版、动画、交互、响应式
+- 📦 **资源不丢失** — 图片、音频、视频、3D 模型全部内嵌进 HTML
 
-将整个 `html-asset-toolkit/` 文件夹放到 Claude / OpenClaw / Codex 支持的 skills 目录中，例如：
-
-```text
-.claude/skills/html-asset-toolkit/
-```
-
-目录根部必须保留：
+**但 HTML 讲义有个痛点：图片是外部文件，分发时容易丢失。** 这个工具包解决了这个问题——把 `index.html + assets/` 变成单个自包含的 HTML 文件。
 
 ```text
-html-asset-toolkit/SKILL.md
+课程 HTML：index.html + assets/  →  dist/index.single.html
+React/Vue 构建：npm run build 后的 dist/index.html  →  dist/index.single.html
 ```
 
-## 最常用场景 A：普通课程 HTML
+## 核心能力
 
-你的课程项目：
+| 能力 | 脚本 | 说明 |
+|------|------|------|
+| **资源内嵌** | `inline_assets.py` | 图片/SVG/音频/视频/GLB/STL/字体/PDF/CSS/JS/WASM → Base64 Data URL |
+| **标签内联** | `inline_assets.py --css-js-mode tag` | CSS → `<style>`、JS → `<script>`，CSP/ES Module/`file://` 兼容性更好 |
+| **前端一键打包** | `package_frontend_build.py` | React/Vue/Vite 项目：构建 → 定位入口 → 内嵌 → 验证，一条命令 |
+| **体积预估** | `estimate_size.py` | 打包前预估最终 HTML 大小，不写任何文件 |
+| **本地预览** | `serve_preview.py` | 自动检测端口的 HTTP 服务器，可选自动打开浏览器 |
+| **验证检查** | `validate_single_html.py` | 扫描残留本地引用、解码嵌入的 CSS/JS 检查内部路径 |
+| **资源提取** | `extract_assets.py` | 从单文件 HTML 提取 Base64 资源回文件 |
+| **智能重命名** | `rename_extracted_assets.py` | 根据 alt/标题/上下文语义重命名提取的资源 |
+
+## 快速开始
+
+### 场景 A：普通课程 HTML
 
 ```text
 course-demo/
 ├── index.html
 └── assets/
+    ├── images/
+    ├── audio/
+    └── styles/
 ```
-
-Skill 工具：
-
-```text
-/path/to/html-asset-toolkit/
-```
-
-运行：
 
 ```bash
 cd course-demo
-python /path/to/html-asset-toolkit/scripts/inline_assets.py index.html
+python /path/to/html-asset-toolkit/scripts/inline_assets.py index.html --css-js-mode tag
 python /path/to/html-asset-toolkit/scripts/validate_single_html.py dist/index.single.html
 ```
 
-最终交付：
+交付：`course-demo/dist/index.single.html` — 单文件，图片音频全部内嵌，直接发送。
 
-```text
-course-demo/dist/index.single.html
-```
-
-这里的 `dist/` 是当前课程项目的子目录，不是 Skill 自己的目录。
-
-## 最常用场景 B：React / Vue 项目一键构建并打包
-
-你的前端项目：
-
-```text
-my-app/
-├── package.json
-├── src/
-└── public/
-```
-
-推荐直接运行包装脚本：
+### 场景 B：React / Vue 项目一键打包
 
 ```bash
 cd my-app
-python /path/to/html-asset-toolkit/scripts/package_frontend_build.py .
+python /path/to/html-asset-toolkit/scripts/package_frontend_build.py . --css-js-mode tag
 ```
 
-该脚本会自动执行：
+wrapper 自动完成：检测包管理器 → `npm run build` → 定位 `dist/index.html` → 内嵌资源 → 验证。
 
-```text
-1. 检测 npm / pnpm / yarn / bun
-2. 运行构建命令，默认 npm run build
-3. 查找 dist/index.html、build/index.html 或 out/index.html
-4. 把构建产物中的 assets、CSS、JS、图片、字体、媒体等资源嵌入 HTML
-5. 输出 index.single.html
-6. 运行 validate_single_html.py 验证
-```
-
-常见输出：
-
-```text
-Vite / Vue CLI：my-app/dist/index.single.html
-Create React App：my-app/build/index.single.html
-静态导出：my-app/out/index.single.html
-```
-
-## 最常用场景 C：React / Vue 已经 build 好，只负责打包
-
-Vite / Vue CLI 常见输出：
-
-```text
-my-app/
-└── dist/
-    ├── index.html
-    └── assets/
-        ├── index-xxxxx.js
-        ├── index-xxxxx.css
-        └── logo-xxxxx.svg
-```
-
-运行：
+### 场景 C：预估体积再决定是否打包
 
 ```bash
-cd my-app
-python /path/to/html-asset-toolkit/scripts/package_frontend_build.py . --skip-build
+# 预估最终大小（不写文件）
+python /path/to/html-asset-toolkit/scripts/estimate_size.py dist/index.html
+
+# 打包前预估，超 50MB 自动中止
+python /path/to/html-asset-toolkit/scripts/package_frontend_build.py . --estimate --max-total-mb 50
 ```
 
-或者显式处理入口：
+### 场景 D：浏览器验证
 
 ```bash
-python /path/to/html-asset-toolkit/scripts/inline_assets.py dist/index.html --preset react-vue-build
-python /path/to/html-asset-toolkit/scripts/validate_single_html.py dist/index.single.html
+# 启动本地预览服务器，自动打开浏览器
+python /path/to/html-asset-toolkit/scripts/serve_preview.py dist/index.single.html --open
 ```
 
-Create React App：
+## 🏷️ 标签内联模式（推荐）
 
-```bash
-python /path/to/html-asset-toolkit/scripts/inline_assets.py build/index.html --preset create-react-app
-python /path/to/html-asset-toolkit/scripts/validate_single_html.py build/index.single.html
-```
-
-## 输出规则
-
-### 1. 普通源 HTML
-
-```text
-输入 HTML 所在目录 / dist / <原文件名>.single.html
-```
-
-例如：
-
-```text
-course-demo/index.html     -> course-demo/dist/index.single.html
-course-demo/chapter01.html -> course-demo/dist/chapter01.single.html
-course-demo/demo.html      -> course-demo/dist/demo.single.html
-```
-
-### 2. 前端构建产物 HTML
-
-如果输入文件已经位于 `dist/`、`build/` 或 `out/` 生产构建目录下，默认输出到同级目录，避免生成 `dist/dist/`：
-
-```text
-my-app/dist/index.html  -> my-app/dist/index.single.html
-my-app/build/index.html -> my-app/build/index.single.html
-my-app/out/index.html   -> my-app/out/index.single.html
-```
-
-`public/index.html` 不再作为构建产物自动选择；它通常是源模板。确实需要处理时，请显式传 `--entry public/index.html`，并按普通/泛型 HTML 验证结果。
-
-## React / Vue 构建支持能力
-
-可处理 HTML 中的构建资源引用：
+v3.0.0 新增 `--css-js-mode tag`，**默认推荐使用**：
 
 ```html
-<script type="module" src="/assets/index-xxxxx.js"></script>
-<link rel="stylesheet" href="/assets/index-xxxxx.css">
-<link rel="icon" href="/favicon.ico">
+<!-- data-url 模式（旧默认）-->
+<link rel="stylesheet" href="data:text/css;base64,QGJvZHk...">
+<script type="module" src="data:text/javascript;base64,aW1wb3J0..."></script>
+
+<!-- tag 模式（推荐）-->
+<style>body { margin: 0; }</style>
+<script type="module">import { createApp } from ...</script>
 ```
 
-也会处理 CSS / JS 内部资源：
+| 优势 | 说明 |
+|------|------|
+| ✅ ES Module 可靠 | `<script type="module" src="data:...">` 在部分浏览器静默失败，tag 模式全平台可靠 |
+| ✅ CSP 兼容 | 嵌入有 CSP 限制的平台（LMS/企业 wiki/公众号）时，data URL 常被拦截 |
+| ✅ `file://` 离线 | 双击打开本地文件时，tag 内联不受跨域限制 |
+| ✅ DevTools 可读 | 标签内容直接显示源码，而非 Base64 乱码 |
 
-```css
-@import "./theme.css";
-.hero { background-image: url('/assets/bg-xxxxx.png'); }
-@font-face { src: url('/assets/font-xxxxx.woff2'); }
+仅在需要 `extract_assets.py` 可逆提取时才用默认的 `data-url` 模式。详见 [`references/inline-modes.md`](./references/inline-modes.md)。
+
+## 支持的资源类型
+
+| 类别 | 格式 |
+|------|------|
+| 图片 | PNG, JPG, WebP, GIF, SVG, ICO, BMP, AVIF |
+| 音频 | MP3, WAV, OGG, M4A, AAC, FLAC |
+| 视频 | MP4, WebM, MOV |
+| 3D 模型 | GLB, glTF, STL, OBJ, USDZ |
+| 文档 | PDF, JSON, CSV, XML |
+| 代码 | CSS, JS, MJS, WASM |
+| 字体 | WOFF2, WOFF, TTF, OTF |
+
+## 安装
+
+将整个 `html-asset-toolkit/` 文件夹放到 Agent 的 skills 目录：
+
+```text
+.claude/skills/html-asset-toolkit/          # Claude Code
+.zcode/skills/html-asset-toolkit/           # ZCode
+.agents/skills/html-asset-toolkit/          # 通用
 ```
 
-```js
-const logo = "/assets/logo-xxxxx.svg";
-const model = "/assets/model-xxxxx.glb";
-import("/assets/chunk-xxxxx.js");
-```
-
-也支持 Vite/esbuild 压缩后常见的静态模板字符串路径：
-
-```js
-var BUILDING_IMAGES=[`/buildings/buildingA.jpg`,`/buildings/buildingB.jpg`];
-```
-
-但动态模板字符串无法静态解析：
-
-```js
-const img = `/buildings/${buildingName}.jpg`;
-```
-
-这种情况建议改成静态路径映射表，或者通过 bundler import 显式引入资源。
-
-对于 Vite、Vue CLI、Create React App 中常见的 `/assets/...`、`/static/...`、`/css/...`、`/js/...` 根路径，工具会按构建目录解析，而不是按系统根目录解析。
-
-## 常用命令
-
-### 一键构建并打包前端项目
-
-```bash
-python scripts/package_frontend_build.py .
-python scripts/package_frontend_build.py . --skip-build
-python scripts/package_frontend_build.py . --build-command "npm run build"
-python scripts/package_frontend_build.py . --entry dist/index.html
-```
-
-### 指定输出路径
-
-相对 `--out` 会按输入 HTML 所在目录解析：
-
-```bash
-python scripts/inline_assets.py index.html --out dist/index.single.html
-```
-
-### 指定根路径解析目录
-
-当构建产物中的资源使用 `/assets/...` 根路径，但 HTML 不在站点根目录时，使用 `--root-dir`：
-
-```bash
-python scripts/inline_assets.py dist/index.html --root-dir dist
-```
-
-默认情况下，`dist/index.html` 会自动把 `/assets/app.js` 解析为 `dist/assets/app.js`。
-
-### 只嵌入指定格式
-
-```bash
-python scripts/inline_assets.py index.html --include-ext .png,.jpg,.svg,.mp3,.mp4,.glb,.stl,.css,.js
-```
-
-### 限制体积
-
-```bash
-python scripts/inline_assets.py index.html --max-asset-mb 25 --max-total-mb 80
-```
-
-### 图片压缩为 WebP 后嵌入
+**无需安装依赖** — 核心脚本仅用 Python 标准库。可选安装 Pillow 以启用图片 WebP 压缩：
 
 ```bash
 pip install pillow
-python scripts/inline_assets.py index.html --image-mode webp --max-width 1800 --max-height 1800 --webp-quality 82
 ```
 
-### 提取 Base64 资源
+## 命令速查
+
+### 内嵌资源
+
+```bash
+# 普通课程 HTML（推荐 tag 模式）
+python scripts/inline_assets.py index.html --css-js-mode tag
+
+# React/Vue 构建产物
+python scripts/inline_assets.py dist/index.html --preset react-vue-build --css-js-mode tag
+
+# 图片压缩为 WebP 后嵌入
+python scripts/inline_assets.py index.html --image-mode webp --max-width 1800
+
+# 限制体积
+python scripts/inline_assets.py index.html --max-asset-mb 25 --max-total-mb 80
+```
+
+### 前端一键打包
+
+```bash
+python scripts/package_frontend_build.py .                          # 完整构建+打包
+python scripts/package_frontend_build.py . --skip-build             # 仅打包已有 build
+python scripts/package_frontend_build.py . --css-js-mode tag         # 推荐：标签内联
+python scripts/package_frontend_build.py . --estimate --max-total-mb 50  # 预估+超限中止
+```
+
+### 预估 / 验证 / 预览
+
+```bash
+python scripts/estimate_size.py index.html              # 预估体积
+python scripts/estimate_size.py index.html --json       # JSON 报告
+python scripts/validate_single_html.py dist/index.single.html
+python scripts/validate_single_html.py dist/index.single.html --strict
+python scripts/serve_preview.py dist/index.single.html --open  # 本地预览
+```
+
+### 提取 / 重命名
 
 ```bash
 python scripts/extract_assets.py dist/index.single.html --output-dir extracted-assets --replace
 python scripts/rename_extracted_assets.py extracted-assets --name-from auto
 ```
 
-### 验证单文件 HTML
+## 输出约定
 
-```bash
-python scripts/validate_single_html.py dist/index.single.html
-python scripts/validate_single_html.py dist/index.single.html --json
+```text
+普通源 HTML：
+  course/index.html      →  course/dist/index.single.html
+  course/chapter01.html  →  course/dist/chapter01.single.html
+
+前端构建产物（输出在同级，避免 dist/dist/）：
+  app/dist/index.html    →  app/dist/index.single.html
+  app/build/index.html   →  app/build/index.single.html
 ```
 
-验证器不仅检查 HTML 表层引用，也会解码嵌入后的 `data:text/javascript;base64,...` 和 `data:text/css;base64,...`，检查里面是否还残留 `/assets/...`、`/buildings/...` 等本地资源路径。
+## 自测
+
+```bash
+cd html-asset-toolkit
+python tests/smoke_test.py
+# 覆盖：普通HTML打包、React/Vue build打包、标签内联、体积预估、验证、预览服务器
+```
+
+## 文档索引
+
+| 文档 | 内容 |
+|------|------|
+| [`SKILL.md`](./SKILL.md) | Agent 技能定义、触发条件、执行契约 |
+| [`references/inline-modes.md`](./references/inline-modes.md) | data-url vs tag 模式选择指南 |
+| [`references/parameters.md`](./references/parameters.md) | 全部 CLI 参数参考 |
+| [`references/react-vue-build-packaging.md`](./references/react-vue-build-packaging.md) | 前端构建打包工作流 |
+| [`references/js-asset-detection.md`](./references/js-asset-detection.md) | Vite/esbuild JS 资源检测 |
+| [`references/quality-gate.md`](./references/quality-gate.md) | 交付前检查清单 |
+| [`references/troubleshooting.md`](./references/troubleshooting.md) | 常见问题排查 |
+| [`references/mime-data-url-matrix.md`](./references/mime-data-url-matrix.md) | MIME 类型速查 |
+| [`references/single-html-strategy.md`](./references/single-html-strategy.md) | 单文件打包策略 |
+| [`references/threejs-model-recipes.md`](./references/threejs-model-recipes.md) | GLB/STL 加载方案 |
+| [`examples/frameworks/`](./examples/frameworks/) | Vite/Vue/CRA/webpack 框架示例 |
+| [`CHANGELOG.md`](./CHANGELOG.md) | 版本更新记录 |
 
 ## 使用建议
 
 | 场景 | 建议 |
-|---|---|
-| 课程演示、教学交付、百宝箱 HTML | 可以内嵌资源，交付单文件 |
-| 正式线上 Web 项目 | 不建议内嵌，保留 assets 外联 |
-| React/Vue 课程 Demo | `npm run build` 后打包 `dist/index.html` 或 `build/index.html` |
-| 大 MP4 / GLB / STL | 先压缩，再决定是否内嵌 |
-| 超过 100 MB 的单 HTML | 视为重型交付，打开会慢 |
+|------|------|
+| 课程演示、教学交付、百宝箱 HTML | ✅ 内嵌资源，交付单文件 |
+| React/Vue 课程 Demo | ✅ `npm run build` 后用 `--css-js-mode tag` 打包 |
+| 正式线上 Web 项目 | ❌ 不建议内嵌，保留 assets 外联 |
+| 大 MP4 / GLB / STL | ⚠️ 先压缩，再用 `estimate_size.py` 预估 |
+| 超过 100 MB 的单 HTML | ⚠️ 重型交付，打开会慢 |
 
-## 快速自测
+## 技术约束
 
-```bash
-cd html-asset-toolkit
-python tests/smoke_test.py  # 覆盖普通 HTML、React/Vue build、Vite 反引号路径
-```
+- **零硬依赖** — 核心脚本仅用 Python 标准库（`http.server`、`base64`、`re`、`argparse`）
+- **确定性输出** — 相同输入产生相同输出，适合 Agent 程序化调用
+- **向后兼容** — v3.0.0 新功能均有默认值，默认行为 = v2.6.0
+- **递归处理** — CSS 内的 `url()`/`@import`、JS 内的资源字符串都会递归内嵌
+- **Vite/esbuild 兼容** — 识别压缩后的反引号模板字面量路径 `` `/buildings/a.jpg` ``
 
-## v2.6.0 稳健性规则
+## License
 
-### React / Vue 构建产物入口
-
-`package_frontend_build.py` 默认只自动查找生产构建入口：
-
-```text
-dist/index.html
-build/index.html
-out/index.html
-```
-
-`public/index.html` 不再自动选择，因为它在 React / Vue / Vite 项目里通常是源模板或静态源文件，不一定是 `npm run build` 后的产物。如确实要处理它，必须显式传入：
-
-```bash
-python scripts/package_frontend_build.py . --skip-build --entry public/index.html
-```
-
-### wrapper 路径解析
-
-在 `package_frontend_build.py` 中，`--root-dir` 和 `--assets-root` 的相对路径按项目根目录解析：
-
-```bash
-cd my-app
-python /path/to/html-asset-toolkit/scripts/package_frontend_build.py . --skip-build --entry dist/index.html --root-dir dist
-```
-
-这里的 `--root-dir dist` 表示 `my-app/dist`，不会被错误解析为 `my-app/dist/dist`。
-
-### 严格模式与 warning
-
-```bash
-python scripts/package_frontend_build.py . --skip-build --entry dist/index.html --strict
-```
-
-`--strict` 会让：
-
-1. `inline_assets.py` 对缺失或超限本地资源返回失败；
-2. `validate_single_html.py` 对 warning 返回失败；
-3. wrapper 在 summary 中输出 `validation_warning_count` 和 `validation_warnings`。
-
-也可以只让验证 warning 失败：
-
-```bash
-python scripts/package_frontend_build.py . --skip-build --entry dist/index.html --fail-on-warning
-```
-
+[MIT](./LICENSE)
