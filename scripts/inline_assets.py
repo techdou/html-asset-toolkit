@@ -114,6 +114,22 @@ JS_STRING_RE = re.compile(
     re.IGNORECASE,
 )
 
+# <link rel="stylesheet" href="style.css"> — captures rel, href, and any
+# preceding attributes so we can reconstruct a <style> with media/type kept.
+LINK_STYLE_RE = re.compile(
+    r"<link\b[^>]*?\brel\s*=\s*[\"']?\s*stylesheet\s*[\"']?"
+    r"[^>]*?\bhref\s*=\s*(?P<quote>[\"'])(?P<url>(?!data:)[^\"']+?\.css(?:[?#][^\"']*)?)(?P=quote)"
+    r"[^>]*?>",
+    re.IGNORECASE,
+)
+
+# <script ... src="app.js"></script> — captures the opening tag attributes and
+# the closing tag so the whole element can be replaced with an inline <script>.
+SCRIPT_SRC_RE = re.compile(
+    r"(?P<open><script\b)(?P<attrs>[^>]*?)\bsrc\s*=\s*(?P<quote>[\"'])(?P<url>(?!data:)[^\"']+?\.m?js(?:[?#][^\"']*)?)(?P=quote)(?P<rest_attrs>[^>]*?)(?P<close>>)\s*</script>",
+    re.IGNORECASE,
+)
+
 EXTERNAL_PREFIXES = ("data:", "http://", "https://", "//", "mailto:", "tel:", "#", "javascript:")
 BUILD_OUTPUT_DIR_NAMES = {"dist", "build", "out"}
 
@@ -379,6 +395,29 @@ def make_inliner(args: argparse.Namespace, html_dir: Path, manifest: list[Inline
     return inline_url
 
 
+def extract_data_url_text(data_url: str) -> str:
+    """Decode a data:text/...;base64,... URL back to its text content.
+
+    Used by tag-inline mode to recover CSS/JS source from the data URL that
+    the recursive inliner produced, so it can be placed inside <style>/<script>.
+    """
+    comma = data_url.find(",")
+    if comma < 0:
+        return data_url
+    payload = data_url[comma + 1:]
+    if ";base64," in data_url[:comma + 1]:
+        import base64 as _b64
+        return _b64.b64decode(payload).decode("utf-8", errors="replace")
+    from urllib.parse import unquote_to_bytes
+    return unquote_to_bytes(payload).decode("utf-8", errors="replace")
+
+
+def extract_attr_value(tag: str, name: str) -> str:
+    """Read a single attribute value from an HTML tag string."""
+    m = re.search(rf"\b{name}\s*=\s*([\"'])(.*?)\1", tag, flags=re.IGNORECASE | re.DOTALL)
+    return m.group(2) if m else ""
+
+
 def replace_srcset(value: str, inline_url) -> str:
     parts = []
     for item in value.split(","):
@@ -395,6 +434,7 @@ def replace_srcset(value: str, inline_url) -> str:
 def inline_html(html: str, args: argparse.Namespace, html_dir: Path) -> tuple[str, list[InlineResult], int]:
     manifest: list[InlineResult] = []
     inline_url = make_inliner(args, html_dir, manifest)
+    css_js_mode = getattr(args, "css_js_mode", "data-url")
 
     def repl_srcset(match: re.Match) -> str:
         return f"{match.group('prefix')}{match.group('quote')}{replace_srcset(match.group('value'), inline_url)}{match.group('quote')}"
@@ -416,6 +456,41 @@ def inline_html(html: str, args: argparse.Namespace, html_dir: Path) -> tuple[st
         quote = match.group("quote")
         new = inline_url(match.group("url"), "js_string")
         return f"{quote}{escape_js_string_literal(new, quote)}{quote}"
+
+    # --- tag mode: inline <link rel="stylesheet"> and <script src> as tags ---
+    def repl_link_style_tag(match: re.Match) -> str:
+        # Resolve the CSS to its data-url form first (this recurses into
+        # url()/@import), then strip the data-url prefix to get raw CSS text.
+        url = match.group("url")
+        data_url = inline_url(url, "css_tag")
+        if not data_url.startswith("data:text/css"):
+            # Could not inline (missing or external); keep the original tag.
+            return match.group(0)
+        css_text = extract_data_url_text(data_url)
+        tag = match.group(0)
+        media = extract_attr_value(tag, "media")
+        media_attr = f' media="{media}"' if media else ""
+        return f"<style{media_attr}>\n{css_text}\n</style>"
+
+    def repl_script_src_tag(match: re.Match) -> str:
+        url = match.group("url")
+        data_url = inline_url(url, "js_tag")
+        if not data_url.startswith("data:text/javascript") and not data_url.startswith("data:application/javascript"):
+            return match.group(0)
+        js_text = extract_data_url_text(data_url)
+        type_attr = ""
+        open_tag = match.group("open")
+        attrs = match.group("attrs") + match.group("rest_attrs")
+        type_val = extract_attr_value(f"<script{attrs}>", "type")
+        if type_val:
+            type_attr = f' type="{type_val}"'
+        return f"{open_tag}{type_attr}>\n{js_text}\n</script>"
+
+    # In tag mode, process link/script before the generic attribute pass so
+    # they are consumed as whole elements rather than individual href/src.
+    if css_js_mode == "tag":
+        html = LINK_STYLE_RE.sub(repl_link_style_tag, html)
+        html = SCRIPT_SRC_RE.sub(repl_script_src_tag, html)
 
     html = SRCSET_RE.sub(repl_srcset, html)
     html = ATTR_RE.sub(repl_attr, html)
@@ -512,6 +587,7 @@ def main() -> int:
     parser.add_argument("--process-external-css", action=argparse.BooleanOptionalAction, default=True, help="Inline url(...) references inside external CSS before embedding CSS.")
     parser.add_argument("--process-external-js", action=argparse.BooleanOptionalAction, default=True, help="Inline local asset strings inside external JS before embedding JS.")
     parser.add_argument("--remove-integrity", action=argparse.BooleanOptionalAction, default=True, help="Remove integrity= attributes because SRI hashes no longer match after inlining CSS/JS.")
+    parser.add_argument("--css-js-mode", choices=["data-url", "tag"], default="data-url", help="How to embed CSS/JS: data-url (default, <link>/<script> keep href/src as data URLs) or tag (replace with inline <style>/<script> blocks for better CSP/CORS compat).")
     args = parser.parse_args()
 
     if not args.input_html.exists():
@@ -543,6 +619,7 @@ def main() -> int:
         "common_index_delivery_path": "dist/index.single.html",
         "source_name": args.input_html.name,
         "preset": args.preset,
+        "css_js_mode": args.css_js_mode,
         "build_context": detect_build_context(args.input_html),
         "root_dir": str(args.root_dir),
         "frontend_build_entry": is_frontend_build_entry(args.input_html),

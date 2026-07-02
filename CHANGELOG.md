@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.0.0 - Tag-inline mode, size estimation, preview server, framework guides
+
+### Added
+
+- **Tag-inline mode** (`--css-js-mode tag`): inlines CSS as `<style>` blocks and JS as `<script>` blocks instead of Data URL attributes. Improves CSP, CORS, and ES module compatibility. CSS/JS internal resources are still recursively inlined as Data URLs. Supported in `inline_assets.py` and transparently forwarded by `package_frontend_build.py`.
+- **Size estimation** (`estimate_size.py`): projects the final single-file HTML size by applying the Base64 expansion factor to every resolved asset. No files are written. Supports `--json` for programmatic use. The wrapper accepts `--estimate` to abort early if the projected size exceeds `--max-total-mb`.
+- **Local preview server** (`serve_preview.py`): a zero-dependency HTTP server based on `http.server`. Auto-detects the first available port starting from `--port`. Optionally opens the system browser (`--open`). Serves a single file or a directory.
+- **Framework-specific guides** under `examples/frameworks/`: Vite React, Vite Vue, Create React App, Vue CLI, and webpack — each with minimal config files (`base: './'` / `publicPath: './'`), build+package commands, and common pitfalls (code splitting, hash routing, service workers).
+- **Inline modes reference** (`references/inline-modes.md`): data-url vs tag mode decision guide with a CSP/CORS compatibility matrix.
+
+### Improved
+
+- `validate_single_html.py` now scans inline `<style>` and `<script>` blocks (tag-mode output) for residual local references, reporting them under `tag_inline_refs` in the JSON output.
+- `inline_assets.py` manifest report includes `css_js_mode`.
+- `package_frontend_build.py` summary includes an `estimated` block when `--estimate` is used.
+
+### Notes
+
+- Default behavior is unchanged: `--css-js-mode` defaults to `data-url`, preserving full backward compatibility with v2.6.0.
+- All new scripts use only the Python standard library. No new hard dependencies.
+- The smoke test now covers tag-inline mode, size estimation, tag-mode validation, and the preview server.
+
 ## v2.6.0 - Wrapper strictness and build-entry robustness
 
 - Fixed `package_frontend_build.py --strict` calling `validate_single_html.py --strict` when validator only accepted `--fail-on-warning`.

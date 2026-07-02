@@ -113,3 +113,51 @@ resolves to `my-app/dist`, not `my-app/dist/dist`.
 ## public/index.html was selected accidentally
 
 Fixed in v2.6.0. The wrapper no longer auto-selects `public/index.html` because React/Vue/Vite projects often use it as a source template rather than a production artifact. Run `npm run build` and package `dist/index.html`, `build/index.html`, or `out/index.html`. Use `--entry public/index.html` only when explicitly required.
+
+## CSP blocks data: URLs in style-src or script-src
+
+If the target page has a Content-Security-Policy that disallows `data:` in `style-src` or `script-src`, use tag-inline mode:
+
+```bash
+python scripts/inline_assets.py index.html --css-js-mode tag
+```
+
+This replaces `<link rel="stylesheet" href="data:...">` with `<style>...</style>` and `<script src="data:...">` with `<script>...</script>`. Internal assets (images, fonts in CSS) remain as Data URLs — adjust `img-src`/`font-src` accordingly, or see `references/inline-modes.md`.
+
+## ES module script does not load as data: URL
+
+Some browsers have inconsistent support for `<script type="module" src="data:text/javascript;base64,...">`. Use tag mode:
+
+```bash
+python scripts/inline_assets.py dist/index.html --css-js-mode tag
+```
+
+The module script becomes `<script type="module">/* code */</script>`, which is reliably supported.
+
+## Estimated size exceeds the limit
+
+Run `estimate_size.py` before committing to a full packaging run:
+
+```bash
+python scripts/estimate_size.py dist/index.html --json
+```
+
+Or use the wrapper's `--estimate` flag to abort automatically if the projected size exceeds `--max-total-mb`:
+
+```bash
+python scripts/package_frontend_build.py . --estimate --max-total-mb 50
+```
+
+If the estimate is too large, compress large media (MP4, GLB) before embedding, or exclude large extensions:
+
+```bash
+python scripts/inline_assets.py index.html --exclude-ext .mp4,.glb --max-asset-mb 25
+```
+
+## Preview server port is in use
+
+`serve_preview.py` auto-detects the first available port starting from `--port`. If you see "Port 8000 in use, using 8001 instead", that is expected. To start from a specific port:
+
+```bash
+python scripts/serve_preview.py dist/index.single.html --port 3000 --open
+```

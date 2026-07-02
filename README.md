@@ -1,5 +1,7 @@
 # HTML Asset Toolkit Skill
 
+> **v3.0.0 新增**：标签内联模式（`--css-js-mode tag`）、体积预估（`estimate_size.py`）、本地预览服务器（`serve_preview.py`）、框架专项示例（`examples/frameworks/`）。
+
 用于把课程演示 HTML、离线教学资源、交互式富文本 HTML、百宝箱 HTML，以及 React / Vue / Vite / Create React App / Vue CLI / webpack 等静态构建产物，打包成可以离线打开的单文件 HTML。
 
 核心目标：

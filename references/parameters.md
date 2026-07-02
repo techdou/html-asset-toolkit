@@ -74,6 +74,42 @@ python scripts/inline_assets.py index.html --out dist/index.single.html
 | `--no-process-external-js` | - | 关闭外部 JS 资源字符串处理 |
 | `--remove-integrity` | `True` | 移除 `integrity=` 属性；CSS/JS 改成 Data URL 后原 SRI 哈希会失效 |
 | `--no-remove-integrity` | - | 保留 `integrity=` 属性，不推荐用于单文件打包 |
+| `--css-js-mode` | `data-url` | CSS/JS 嵌入方式：`data-url`（默认，保持 href/src 为 Data URL）或 `tag`（替换为 `<style>`/`<script>` 标签，CSP/CORS 兼容性更好） |
+
+## estimate_size.py — 预估最终体积（不写文件）
+
+```bash
+python scripts/estimate_size.py index.html
+python scripts/estimate_size.py dist/index.html --json
+```
+
+| 参数 | 默认值 | 说明 |
+|---|---:|---|
+| `input_html` | 必填 | 输入 HTML 文件 |
+| `--assets-root` | 空 | 额外资源根目录；相对路径按输入 HTML 所在目录解析 |
+| `--root-dir` | 输入 HTML 所在目录 | 浏览器根路径解析目录 |
+| `--include-ext` | 空 | 只统计指定扩展名 |
+| `--exclude-ext` | 空 | 排除指定扩展名 |
+| `--max-asset-mb` | `0` | 单个资源最大 MB；超限标记为 over_limit |
+| `--max-total-mb` | `0` | 预估嵌入总量上限（仅用于超限警告，不中止） |
+| `--json` | `False` | 输出 JSON 报告 |
+
+预估逻辑：扫描所有资源引用，按 Base64 膨胀系数（×1.33）估算嵌入后体积，加上 HTML 基础体积得到最终 HTML 预估大小。
+
+## serve_preview.py — 本地预览服务器
+
+```bash
+python scripts/serve_preview.py dist/index.single.html --open
+python scripts/serve_preview.py dist/ --port 3000
+```
+
+| 参数 | 默认值 | 说明 |
+|---|---:|---|
+| `target` | 必填 | HTML 文件或目录 |
+| `--port` | `8000` | 起始端口；被占用时自动递增查找下一个可用端口 |
+| `--host` | `127.0.0.1` | 绑定地址；`0.0.0.0` 允许局域网访问 |
+| `--open` | `False` | 自动打开系统浏览器 |
+| `--no-browser` | `False` | 确保不打开浏览器（覆盖 `--open`，适合 CI/Agent） |
 
 ### 路径规则
 
@@ -188,6 +224,8 @@ python scripts/package_frontend_build.py .
 | `--max-asset-mb` | Per-asset embedding limit. |
 | `--max-total-mb` | Total decoded embedding limit. |
 | `--image-mode raw|webp` | Optional image conversion mode. |
+| `--css-js-mode data-url|tag` | CSS/JS embedding mode. Defaults to `data-url`. `tag` produces inline `<style>`/`<script>` blocks. |
+| `--estimate` | Run `estimate_size.py` first. Abort if projected size exceeds `--max-total-mb`. |
 | `--no-validate` | Skip validation after packaging. |
 | `--strict` | Make inline/validate checks stricter. |
 | `--dry-run` | Print actions without writing output. |

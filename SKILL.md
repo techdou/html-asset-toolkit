@@ -1,6 +1,6 @@
 ---
 name: html-asset-toolkit
-description: Package course HTML and static React/Vue builds into portable single-file HTML by embedding local assets as Base64/Data URLs, including robust CSS/JS asset rewriting and extraction back to files. Use for 单文件HTML, Base64内嵌, 资源内嵌, 离线课程演示, 交互式学习HTML, 百宝箱HTML, or React/Vue/Vite/CRA/Vue CLI/webpack npm run build output packaging where dist/index.html or build/index.html plus assets/CSS/JS/images/fonts/MP3/MP4/GLB/STL must become one HTML file, including Vite/esbuild JS template-literal paths like `/buildings/a.jpg`. For source HTML output is dist/<source-name>.single.html; for build entries output is beside the build entry, e.g. dist/index.single.html or build/index.single.html. Do not use for ordinary production web apps unless the user explicitly requests single-file/offline/Base64 packaging.
+description: Package course HTML and static React/Vue builds into portable single-file HTML by embedding local assets as Base64/Data URLs, including robust CSS/JS asset rewriting and extraction back to files. Use for 单文件HTML, Base64内嵌, 资源内嵌, 离线课程演示, 交互式学习HTML, 百宝箱HTML, 标签内联, 预估体积, 本地预览, or React/Vue/Vite/CRA/Vue CLI/webpack npm run build output packaging where dist/index.html or build/index.html plus assets/CSS/JS/images/fonts/MP3/MP4/GLB/STL must become one HTML file, including Vite/esbuild JS template-literal paths like `/buildings/a.jpg`. Supports tag-inline mode (--css-js-mode tag) for CSP/CORS compatibility, size estimation without embedding (estimate_size.py), and a local preview server (serve_preview.py). For source HTML output is dist/<source-name>.single.html; for build entries output is beside the build entry, e.g. dist/index.single.html or build/index.single.html. Do not use for ordinary production web apps unless the user explicitly requests single-file/offline/Base64 packaging.
 compatibility: Requires Python 3.10+. Optional Pillow for WebP image conversion. Frontend wrapper requires the project package manager when running npm/pnpm/yarn/bun build.
 ---
 
@@ -166,6 +166,32 @@ python scripts/extract_assets.py dist/index.single.html --output-dir extracted-a
 python scripts/rename_extracted_assets.py extracted-assets --name-from auto
 ```
 
+### Estimate final size (no files written)
+
+```bash
+python scripts/estimate_size.py index.html
+python scripts/estimate_size.py dist/index.html --json
+```
+
+Estimates the final single-file HTML size by applying the Base64 expansion factor to every resolved asset. Use before a heavy run to decide whether single-file packaging is practical.
+
+### Preview locally with a static server
+
+```bash
+python scripts/serve_preview.py dist/index.single.html --open
+python scripts/serve_preview.py dist/ --port 3000 --open
+```
+
+Auto-detects the first available port and optionally opens the browser. Press Ctrl+C to stop.
+
+### Tag-inline mode (--css-js-mode tag)
+
+```bash
+python scripts/inline_assets.py index.html --css-js-mode tag
+```
+
+Replaces `<link rel="stylesheet" href="style.css">` with `<style>...</style>` and `<script src="app.js">` with `<script>...</script>` instead of Data URL attributes. Better for CSP/CORS/module-script compatibility. CSS/JS internal resources are still recursively inlined as Data URLs.
+
 ## Frontend build handling
 
 The inliner handles common static build references:
@@ -209,6 +235,7 @@ The tool removes `integrity` attributes by default because SRI hashes no longer 
 ## Read when needed
 
 - `references/react-vue-build-packaging.md` — React/Vue/Vite/CRA/webpack static build packaging workflow.
+- `references/inline-modes.md` — data-url vs tag mode selection guide, CSP/CORS compatibility matrix.
 - `references/js-asset-detection.md` — Vite/esbuild JavaScript string/template-literal asset detection and validation.
 - `references/parameters.md` — full CLI parameter reference.
 - `references/mime-data-url-matrix.md` — MIME types and Base64 prefixes for common assets.
@@ -238,4 +265,13 @@ Before handing off a single-file HTML:
 - When calling the wrapper, interpret `--root-dir` and `--assets-root` relative to the frontend project root.
 - Use `--strict` for final Agent delivery whenever practical. It makes missing/oversized assets fail and makes validator warnings fail.
 - If the wrapper summary contains `validation_warning_count > 0`, report the warnings and do not claim the package is clean.
+
+## v3.0.0 features
+
+| Feature | Script | When to use |
+|---|---|---|
+| Tag-inline mode | `inline_assets.py --css-js-mode tag` | CSP/CORS/module-script compatibility; produces `<style>`/`<script>` instead of Data URL attributes |
+| Size estimation | `estimate_size.py` | Preview the final HTML size before committing to a full run; abort via wrapper `--estimate` if over `--max-total-mb` |
+| Local preview | `serve_preview.py` | Verify the packaged HTML in a browser via local HTTP with auto port detection |
+| Framework guides | `examples/frameworks/` | Vite React/Vue, CRA, Vue CLI, webpack config tips and common pitfalls |
 

@@ -1,14 +1,15 @@
-# Skill Review — html-asset-toolkit v2.6.0
+# Skill Review — html-asset-toolkit v3.0.0
 
 ## Overall score
 
 | Dimension | Score | Notes |
 |---|---:|---|
-| User usability | 9/10 | Clear plain HTML and React/Vue build workflows; wrapper reduces command complexity. |
-| Agent trigger quality | 9/10 | Frontmatter includes English and Chinese triggers, concrete file names, build terms, and boundaries. |
-| Anthropic format fit | 9/10 | Root `SKILL.md`, required frontmatter, scripts, references, progressive disclosure. |
-| Script determinism | 9/10 | Deterministic Python scripts handle inline, wrapper, extract, rename, validate. |
-| React/Vue packaging fit | 9/10 | Supports static build artifacts, CSS/JS recursion, and Vite/esbuild static backtick asset paths; complex runtime/API/PWA apps still need caution. |
+| User usability | 9.5/10 | Clear workflows; wrapper reduces complexity; new estimate/preview scripts close the verify loop. |
+| Agent trigger quality | 9.5/10 | Frontmatter includes English and Chinese triggers, tag-inline/estimate/preview terms, concrete file names, build terms, and boundaries. |
+| Anthropic format fit | 9.5/10 | Root `SKILL.md`, required frontmatter, scripts, references, progressive disclosure. |
+| Script determinism | 9.5/10 | Deterministic Python scripts handle inline (data-url + tag), estimate, wrapper, serve, extract, rename, validate. |
+| React/Vue packaging fit | 9.5/10 | Static build artifacts, CSS/JS recursion, Vite/esbuild backtick paths, tag-inline for CSP/module compat, framework-specific guides. |
+| Roadmap completion | 10/10 | All four v2.6.0 roadmap items shipped: browser verification helper, tag-inline, report-only estimate, framework examples. |
 
 ## User perspective
 
@@ -87,10 +88,12 @@ Those limits are documented so the Agent does not overclaim.
 
 ## Recommended next version ideas
 
-- Add an optional browser verification helper using a local static server.
-- Add an option to inline CSS/JS as literal `<style>` and `<script>` rather than Data URL attributes.
-- Add a report-only command that estimates final size before embedding.
-- Add framework-specific examples for Vite React, Vite Vue, Vue CLI, CRA, and webpack.
+- ~~Add an optional browser verification helper using a local static server.~~ ✅ Done in v3.0.0 (`serve_preview.py`)
+- ~~Add an option to inline CSS/JS as literal `<style>` and `<script>` rather than Data URL attributes.~~ ✅ Done in v3.0.0 (`--css-js-mode tag`)
+- ~~Add a report-only command that estimates final size before embedding.~~ ✅ Done in v3.0.0 (`estimate_size.py`)
+- ~~Add framework-specific examples for Vite React, Vite Vue, Vue CLI, CRA, and webpack.~~ ✅ Done in v3.0.0 (`examples/frameworks/`)
+- Future: add recursive size estimation for CSS/JS-internal nested assets (currently estimates only direct references).
+- Future: add a `--watch` mode to `serve_preview.py` that auto-repackages on file change.
 
 ## v2.6.0 review notes
 

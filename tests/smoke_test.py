@@ -103,9 +103,98 @@ def test_react_vue_build_output() -> None:
     assert "/buildings/buildingA.jpg" not in rooted_text
 
 
+def test_estimate_size() -> None:
+    """estimate_size.py should report projected sizes without writing files."""
+    est_cmd = [sys.executable, "scripts/estimate_size.py", str(EXAMPLE), "--json"]
+    print("$", " ".join(est_cmd))
+    completed = subprocess.run(est_cmd, cwd=ROOT, check=True, capture_output=True, text=True)
+    import json
+    report = json.loads(completed.stdout)
+    assert report["input_html"] == str(EXAMPLE)
+    assert report["estimated_final_html_bytes"] > 0
+    assert len(report["assets"]) > 0
+    found = [a for a in report["assets"] if a["status"] == "found"]
+    assert found, "estimate should find at least one asset"
+    # Ensure estimate_size did not create any new manifest files.
+    # (examples/dist/ may already exist from test_plain_course_html, so we check
+    # that estimate_size itself produces no side effects by verifying it does
+    # not have an "output" or "manifest" field.)
+    assert "output" not in report, "estimate_size should not report an output path"
+    assert "manifest" not in report, "estimate_size should not report a manifest path"
+
+
+def test_tag_inline_mode() -> None:
+    """--css-js-mode tag should produce <style>/<script> blocks, not data URLs."""
+    remove_output(OUTPUT)
+    run([sys.executable, "scripts/inline_assets.py", str(EXAMPLE), "--css-js-mode", "tag"])
+    text = OUTPUT.read_text(encoding="utf-8")
+    assert "<style" in text, "tag mode should produce a <style> block"
+    assert "<script>" in text or '<script type=' in text, "tag mode should produce an inline <script>"
+    # The top-level CSS/JS should NOT be data URLs anymore.
+    assert "data:text/css;base64," not in text, "tag mode should not use CSS data URLs for the main stylesheet"
+    assert "data:text/javascript;base64," not in text, "tag mode should not use JS data URLs for the main script"
+    # Internal assets should still be inlined as data URLs.
+    assert "data:image/png;base64," in text, "internal PNG should still be a data URL"
+
+    manifest_path = OUTPUT.with_suffix(OUTPUT.suffix + ".manifest.json")
+    import json
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert manifest["css_js_mode"] == "tag"
+
+    run([sys.executable, "scripts/validate_single_html.py", str(OUTPUT), "--max-html-mb", "5", "--strict"])
+
+
+def test_validate_tag_mode() -> None:
+    """Validator should scan inline <style>/<script> blocks and report tag_inline_refs."""
+    remove_output(OUTPUT)
+    run([sys.executable, "scripts/inline_assets.py", str(EXAMPLE), "--css-js-mode", "tag"])
+    val_cmd = [sys.executable, "scripts/validate_single_html.py", str(OUTPUT), "--json"]
+    print("$", " ".join(val_cmd))
+    completed = subprocess.run(val_cmd, cwd=ROOT, check=True, capture_output=True, text=True)
+    import json
+    report = json.loads(completed.stdout)
+    assert "tag_inline_refs" in report, "validator should include tag_inline_refs field"
+
+
+def test_serve_preview() -> None:
+    """serve_preview.py should start, respond to HTTP, and shut down cleanly."""
+    import socket
+    import threading
+    import time
+    import urllib.request
+
+    # Find a free port to avoid conflicts.
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    free_port = sock.getsockname()[1]
+    sock.close()
+
+    proc = subprocess.Popen(
+        [sys.executable, "scripts/serve_preview.py", str(EXAMPLE), "--port", str(free_port), "--no-browser"],
+        cwd=ROOT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        time.sleep(1.5)
+        url = f"http://127.0.0.1:{free_port}/{EXAMPLE.name}"
+        response = urllib.request.urlopen(url, timeout=5)
+        assert response.status == 200, "preview server should return 200"
+        body = response.read().decode("utf-8", errors="replace")
+        assert "课程演示" in body or "<html" in body.lower(), "preview server should serve the HTML content"
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
+
+
 def main() -> int:
     test_plain_course_html()
     test_react_vue_build_output()
+    test_estimate_size()
+    test_tag_inline_mode()
+    test_validate_tag_mode()
+    test_serve_preview()
     print("Smoke test passed.")
     return 0
 

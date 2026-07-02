@@ -17,6 +17,7 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 INLINE_SCRIPT = SCRIPT_DIR / "inline_assets.py"
 VALIDATE_SCRIPT = SCRIPT_DIR / "validate_single_html.py"
+ESTIMATE_SCRIPT = SCRIPT_DIR / "estimate_size.py"
 
 # public/index.html is deliberately excluded here. In React/Vue/Vite projects,
 # public/index.html is commonly a source template or static source file, not the
@@ -182,6 +183,8 @@ def main() -> int:
     parser.add_argument("--max-width", type=int, default=1800)
     parser.add_argument("--max-height", type=int, default=1800)
     parser.add_argument("--webp-quality", type=int, default=82)
+    parser.add_argument("--css-js-mode", choices=["data-url", "tag"], default="data-url", help="How to embed CSS/JS: data-url (default) or tag (inline <style>/<script> blocks).")
+    parser.add_argument("--estimate", action="store_true", help="Run estimate_size.py first. If the projected embedded total exceeds --max-total-mb, abort before packaging.")
     parser.add_argument("--no-validate", action="store_true", help="Skip validate_single_html.py after packaging.")
     parser.add_argument("--strict", action="store_true", help="Strict mode: missing/oversized assets fail inlining and validation warnings fail the command.")
     parser.add_argument("--fail-on-warning", action="store_true", help="Fail when validate_single_html.py reports warnings. Also enabled by --strict.")
@@ -207,6 +210,33 @@ def main() -> int:
     root_dir = resolve_project_path(project_dir, args.root_dir)
     assets_root = resolve_project_path(project_dir, args.assets_root)
 
+    # Optional pre-packaging estimate. Aborts if the projected size exceeds
+    # --max-total-mb so agents/users can decide before a heavy run.
+    estimated_report: dict[str, Any] | None = None
+    if args.estimate:
+        est_cmd = [sys.executable, str(ESTIMATE_SCRIPT), str(entry), "--json"]
+        if root_dir:
+            est_cmd.extend(["--root-dir", str(root_dir)])
+        if assets_root:
+            est_cmd.extend(["--assets-root", str(assets_root)])
+        if args.include_ext:
+            est_cmd.extend(["--include-ext", args.include_ext])
+        if args.exclude_ext:
+            est_cmd.extend(["--exclude-ext", args.exclude_ext])
+        if args.max_asset_mb:
+            est_cmd.extend(["--max-asset-mb", str(args.max_asset_mb)])
+        est_completed = capture_command(est_cmd, cwd=project_dir)
+        estimated_report = parse_validation_report(est_completed.stdout or "")
+        if estimated_report:
+            projected = estimated_report.get("estimated_final_html_bytes", 0)
+            if args.max_total_mb and projected > args.max_total_mb * 1024 * 1024:
+                print(
+                    f"ERROR: estimated final HTML {projected} bytes exceeds "
+                    f"--max-total-mb {args.max_total_mb} MB. Aborting before packaging.",
+                    file=sys.stderr,
+                )
+                return 1
+
     inline_cmd = [sys.executable, str(INLINE_SCRIPT), str(entry), "--preset", preset, "--out", str(output)]
     if root_dir:
         inline_cmd.extend(["--root-dir", str(root_dir)])
@@ -223,6 +253,7 @@ def main() -> int:
         "--max-width", str(args.max_width),
         "--max-height", str(args.max_height),
         "--webp-quality", str(args.webp_quality),
+        "--css-js-mode", args.css_js_mode,
     ])
     if args.strict:
         inline_cmd.append("--strict")
@@ -259,6 +290,12 @@ def main() -> int:
         "validation_warning_count": len(validation_warnings),
         "validation_warnings": validation_warnings,
     }
+    if estimated_report:
+        summary["estimated"] = {
+            "estimated_final_html_bytes": estimated_report.get("estimated_final_html_bytes"),
+            "estimated_total_embedded_bytes": estimated_report.get("estimated_total_embedded_bytes"),
+            "missing_count": len(estimated_report.get("missing", [])),
+        }
     if validation_report:
         summary["validation"] = {
             "html_size": validation_report.get("html_size"),

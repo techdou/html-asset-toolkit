@@ -50,6 +50,11 @@ TEXT_ASSET_MIMES = {
     "application/json",
 }
 
+# Match inline <style>...</style> and <script>...</script> blocks produced by
+# tag-inline mode, so we can scan their content for residual local references.
+STYLE_BLOCK_RE = re.compile(r"<style\b[^>]*>(?P<content>.*?)</style>", re.IGNORECASE | re.DOTALL)
+SCRIPT_BLOCK_RE = re.compile(r"<script\b(?![^>]*\bsrc\s*=)[^>]*>(?P<content>.*?)</script>", re.IGNORECASE | re.DOTALL)
+
 
 def decode_payload(match: re.Match) -> bytes:
     clean = re.sub(r"\s+", "", match.group("data"))
@@ -147,6 +152,20 @@ def main() -> int:
     if decoded_text_refs:
         warnings.append("remaining non-data local references exist inside embedded text assets")
 
+    # Scan inline <style>/<script> blocks (tag-inline mode output) for residual
+    # local references that would break at runtime.
+    tag_inline_refs: list[dict] = []
+    for i, m in enumerate(STYLE_BLOCK_RE.finditer(html), 1):
+        block_refs = collect_remaining_refs(m.group("content"))
+        if block_refs["attributes"] or block_refs["css_urls"] or block_refs["js_strings"]:
+            tag_inline_refs.append({"block": i, "type": "style", "remaining_refs": block_refs})
+    for i, m in enumerate(SCRIPT_BLOCK_RE.finditer(html), 1):
+        block_refs = collect_remaining_refs(m.group("content"))
+        if block_refs["attributes"] or block_refs["css_urls"] or block_refs["js_strings"]:
+            tag_inline_refs.append({"block": i, "type": "script", "remaining_refs": block_refs})
+    if tag_inline_refs:
+        warnings.append("remaining non-data local references exist inside inline <style>/<script> blocks")
+
     total_decoded = sum(a["decoded_bytes"] for a in assets)
     report = {
         "input": str(args.input_html),
@@ -166,6 +185,7 @@ def main() -> int:
         },
         "remaining_refs": refs,
         "decoded_text_remaining_refs": decoded_text_refs,
+        "tag_inline_refs": tag_inline_refs,
         "warnings": warnings,
         "assets": assets,
     }
@@ -199,6 +219,21 @@ def main() -> int:
                 for kind, label in (("attributes", "attr"), ("css_urls", "css"), ("js_strings", "js")):
                     for url in refs2[kind][:10]:
                         print(f"  asset #{item['asset_index']} {item['mime']} {label}: {url}")
+                        shown += 1
+                        if shown >= 30:
+                            break
+                    if shown >= 30:
+                        break
+                if shown >= 30:
+                    break
+        if tag_inline_refs:
+            print("\nRemaining local references inside inline <style>/<script> blocks:")
+            shown = 0
+            for item in tag_inline_refs:
+                refs2 = item["remaining_refs"]
+                for kind, label in (("attributes", "attr"), ("css_urls", "css"), ("js_strings", "js")):
+                    for url in refs2[kind][:10]:
+                        print(f"  {item['type']} #{item['block']} {label}: {url}")
                         shown += 1
                         if shown >= 30:
                             break
