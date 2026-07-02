@@ -63,12 +63,14 @@ my-app/out/index.html     -> my-app/out/index.single.html
 
 ## Preferred workflows
 
+> **Recommended**: use `--css-js-mode tag` by default. It produces `<style>`/`<script>` blocks instead of Data URL attributes, which is more reliable for ES modules, CSP-restricted platforms (LMS/enterprise wiki/公众号), and `file://` offline opening. Only keep the default `data-url` when you need `extract_assets.py` reversible extraction. See `references/inline-modes.md`.
+
 ### A. Plain course HTML
 
 Run from the course project root when possible:
 
 ```bash
-python /path/to/html-asset-toolkit/scripts/inline_assets.py index.html
+python /path/to/html-asset-toolkit/scripts/inline_assets.py index.html --css-js-mode tag
 python /path/to/html-asset-toolkit/scripts/validate_single_html.py dist/index.single.html
 ```
 
@@ -77,7 +79,7 @@ python /path/to/html-asset-toolkit/scripts/validate_single_html.py dist/index.si
 Use the wrapper when the user wants the Agent to build and package a frontend project:
 
 ```bash
-python /path/to/html-asset-toolkit/scripts/package_frontend_build.py .
+python /path/to/html-asset-toolkit/scripts/package_frontend_build.py . --css-js-mode tag
 ```
 
 The wrapper will:
@@ -92,7 +94,7 @@ The wrapper will:
 
 ```bash
 npm run build
-python /path/to/html-asset-toolkit/scripts/inline_assets.py dist/index.html --preset react-vue-build
+python /path/to/html-asset-toolkit/scripts/inline_assets.py dist/index.html --preset react-vue-build --css-js-mode tag
 python /path/to/html-asset-toolkit/scripts/validate_single_html.py dist/index.single.html
 ```
 
@@ -100,28 +102,29 @@ Create React App:
 
 ```bash
 npm run build
-python /path/to/html-asset-toolkit/scripts/inline_assets.py build/index.html --preset create-react-app
+python /path/to/html-asset-toolkit/scripts/inline_assets.py build/index.html --preset create-react-app --css-js-mode tag
 python /path/to/html-asset-toolkit/scripts/validate_single_html.py build/index.single.html
 ```
 
 Existing build directory without rebuilding:
 
 ```bash
-python /path/to/html-asset-toolkit/scripts/package_frontend_build.py . --skip-build
+python /path/to/html-asset-toolkit/scripts/package_frontend_build.py . --skip-build --css-js-mode tag
 ```
 
 ## Agent execution contract
 
 1. Identify whether the target is plain source HTML or a frontend build project.
-2. For React/Vue packaging, prefer `scripts/package_frontend_build.py` unless the user gives a specific built HTML entry.
-3. If using the manual workflow, run `npm run build` first unless the user says the build output already exists.
-4. Locate the HTML entry in this order: user-specified `.html`, `dist/index.html`, `build/index.html`, `out/index.html`, then source `index.html`.
-5. Run scripts from the user project root when possible; use absolute paths to this skill's scripts.
-6. Let the default output convention work unless the user specifies `--out`.
-7. Always run `validate_single_html.py` after packaging unless the user explicitly asks to skip validation.
-8. Open or inspect the result when a browser/runtime is available.
-9. Report the generated path, manifest path, warnings, and any remaining local references.
-10. Never paste long Base64 strings into chat; use scripts for deterministic conversion.
+2. **Default to `--css-js-mode tag`** unless the user explicitly needs `extract_assets.py` reversible extraction. Tag mode is more reliable for ES modules, CSP-restricted platforms, and `file://` offline opening.
+3. For React/Vue packaging, prefer `scripts/package_frontend_build.py` unless the user gives a specific built HTML entry.
+4. If using the manual workflow, run `npm run build` first unless the user says the build output already exists.
+5. Locate the HTML entry in this order: user-specified `.html`, `dist/index.html`, `build/index.html`, `out/index.html`, then source `index.html`.
+6. Run scripts from the user project root when possible; use absolute paths to this skill's scripts.
+7. Let the default output convention work unless the user specifies `--out`.
+8. Always run `validate_single_html.py` after packaging unless the user explicitly asks to skip validation.
+9. Open or inspect the result when a browser/runtime is available.
+10. Report the generated path, manifest path, warnings, and any remaining local references.
+11. Never paste long Base64 strings into chat; use scripts for deterministic conversion.
 
 ## Scripts
 
