@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>HTML Asset Toolkit Example</title>
+  <link rel="stylesheet" href="assets/styles/course.css">
+</head>
+<body>
+  <main class="hero">
+    <h1>课程演示单文件 HTML 示例</h1>
+    <section class="card">
+      <h2>图片与音频</h2>
+      <img src="assets/images/demo.png" alt="一像素演示图">
+      <audio controls src="assets/audio/silence.wav"></audio>
+    </section>
+    <section class="card">
+      <h2>3D 模型</h2>
+      <p>模型路径会被转为 Base64 Data URL，供 Three.js loader 读取。</p>
+      <code data="assets/models/cube.stl">assets/models/cube.stl</code>
+    </section>
+  </main>
+  <script src="assets/scripts/viewer.js"></script>
+</body>
+</html>

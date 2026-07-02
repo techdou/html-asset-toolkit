@@ -1,116 +1,241 @@
 ---
 name: html-asset-toolkit
-description: "Complete toolkit for managing images in HTML files: compress and inline images as Base64, extract Base64 images to files with semantic context capture, and smart rename using HTML context. Use when: (1) Creating a self-contained single-file HTML with all images embedded, (2) Extracting embedded images from HTML for editing, (3) Renaming extracted images using alt/heading/context, (4) Converting between file-based and embedded HTML workflows. Covers the full embed-extract-rename cycle."
+description: Package course HTML and static React/Vue builds into portable single-file HTML by embedding local assets as Base64/Data URLs, including robust CSS/JS asset rewriting and extraction back to files. Use for 单文件HTML, Base64内嵌, 资源内嵌, 离线课程演示, 交互式学习HTML, 百宝箱HTML, or React/Vue/Vite/CRA/Vue CLI/webpack npm run build output packaging where dist/index.html or build/index.html plus assets/CSS/JS/images/fonts/MP3/MP4/GLB/STL must become one HTML file, including Vite/esbuild JS template-literal paths like `/buildings/a.jpg`. For source HTML output is dist/<source-name>.single.html; for build entries output is beside the build entry, e.g. dist/index.single.html or build/index.single.html. Do not use for ordinary production web apps unless the user explicitly requests single-file/offline/Base64 packaging.
+compatibility: Requires Python 3.10+. Optional Pillow for WebP image conversion. Frontend wrapper requires the project package manager when running npm/pnpm/yarn/bun build.
 ---
 
 # HTML Asset Toolkit
 
-Three scripts for the full HTML image management cycle: **embed**, **extract**, **rename**.
+Use this skill when the user needs a **portable single-file HTML artifact** for course demos, offline teaching pages, interactive rich-text HTML, 百宝箱 HTML, or static React/Vue build outputs.
 
-## Workflow
+Do **not** use it for normal production Web projects unless the user explicitly asks for single-file, offline, Base64/Data URL, or no-assets-folder packaging.
 
+## Agent routing
+
+Trigger this skill when the user asks to:
+
+- Convert `index.html + assets/` or any `.html + local assets` into one HTML file.
+- Package a React, Vue, Vite, Vue CLI, Create React App, webpack, or similar static frontend after `npm run build`.
+- Inline `dist/index.html` or `build/index.html` with its `assets/`, `static/`, `css/`, `js/`, `img/`, fonts, media, GLB, STL, or WASM files.
+- Embed images, SVG, audio, video, MP3, MP4, WebM, GLB, STL, fonts, PDFs, CSS, JS, or WASM into HTML.
+- Replace local file dependencies with Base64/Data URLs for offline opening.
+- Extract embedded Base64/Data URL assets back into editable files.
+
+Avoid this skill for SEO, deployment, CDN, caching, general frontend refactoring, normal React/Vue development, or formal Web deployment unless the user explicitly requests a self-contained/offline artifact.
+
+## Core decision rule
+
+| User intent | Correct action |
+|---|---|
+| Formal online Web app | Keep assets external. Do not inline by default. |
+| Course/demo/offline handoff | Inline local assets and validate the generated single HTML. |
+| React/Vue source project | Run the build first, then package the generated static build entry. |
+| Existing `dist/index.html` or `build/index.html` | Package that build entry directly; do not rebuild unless needed. |
+| Very large MP4/GLB/STL/PDF | Warn about size; inline only if the user accepts heavy single-file output. |
+
+## Output convention
+
+The tool supports any `.html` filename.
+
+### Plain source HTML
+
+For a normal source file, create a `dist/` folder beside the input HTML:
+
+```text
+course-demo/index.html       -> course-demo/dist/index.single.html
+course-demo/chapter01.html   -> course-demo/dist/chapter01.single.html
+course-demo/demo.html        -> course-demo/dist/demo.single.html
 ```
-原稿 HTML（外部图片）
-    ↓ 1. embed（WebP 压缩 + Base64 内嵌）
-dist/index.html
-    ↓ 2. extract（Base64 → 图片文件 + 捕获语义上下文）
-dist/images/ + manifest（含 alt/title/heading 等上下文）
-    ↓ 3. rename（按上下文智能命名：alt → title → heading → 序号）
-01_葡萄接收区.png ...
-    ↓ 1. embed（重新嵌入）
-dist/index.html
+
+### React/Vue/static build output
+
+For a production build entry already inside `dist/`, `build/`, or `out/`, write the single file beside that entry to avoid nested `dist/dist/`:
+
+```text
+my-app/dist/index.html    -> my-app/dist/index.single.html
+my-app/build/index.html   -> my-app/build/index.single.html
+my-app/out/index.html     -> my-app/out/index.single.html
 ```
+
+`public/index.html` is not treated as a build entry by default because it is often a source template. If explicitly passed, treat it as source/generic HTML and validate the result.
+
+`dist/` in this skill means the current user project/build directory, not the skill directory.
+
+## Preferred workflows
+
+### A. Plain course HTML
+
+Run from the course project root when possible:
+
+```bash
+python /path/to/html-asset-toolkit/scripts/inline_assets.py index.html
+python /path/to/html-asset-toolkit/scripts/validate_single_html.py dist/index.single.html
+```
+
+### B. React/Vue/Vite project: one-command wrapper
+
+Use the wrapper when the user wants the Agent to build and package a frontend project:
+
+```bash
+python /path/to/html-asset-toolkit/scripts/package_frontend_build.py .
+```
+
+The wrapper will:
+
+1. Detect the package manager from lockfiles when possible.
+2. Run the build command, defaulting to `npm run build` when no lockfile implies another manager.
+3. Locate `dist/index.html`, `build/index.html`, or `out/index.html`.
+4. Inline the build assets into `index.single.html` beside the build entry.
+5. Validate the generated file.
+
+### C. React/Vue/Vite project: explicit manual workflow
+
+```bash
+npm run build
+python /path/to/html-asset-toolkit/scripts/inline_assets.py dist/index.html --preset react-vue-build
+python /path/to/html-asset-toolkit/scripts/validate_single_html.py dist/index.single.html
+```
+
+Create React App:
+
+```bash
+npm run build
+python /path/to/html-asset-toolkit/scripts/inline_assets.py build/index.html --preset create-react-app
+python /path/to/html-asset-toolkit/scripts/validate_single_html.py build/index.single.html
+```
+
+Existing build directory without rebuilding:
+
+```bash
+python /path/to/html-asset-toolkit/scripts/package_frontend_build.py . --skip-build
+```
+
+## Agent execution contract
+
+1. Identify whether the target is plain source HTML or a frontend build project.
+2. For React/Vue packaging, prefer `scripts/package_frontend_build.py` unless the user gives a specific built HTML entry.
+3. If using the manual workflow, run `npm run build` first unless the user says the build output already exists.
+4. Locate the HTML entry in this order: user-specified `.html`, `dist/index.html`, `build/index.html`, `out/index.html`, then source `index.html`.
+5. Run scripts from the user project root when possible; use absolute paths to this skill's scripts.
+6. Let the default output convention work unless the user specifies `--out`.
+7. Always run `validate_single_html.py` after packaging unless the user explicitly asks to skip validation.
+8. Open or inspect the result when a browser/runtime is available.
+9. Report the generated path, manifest path, warnings, and any remaining local references.
+10. Never paste long Base64 strings into chat; use scripts for deterministic conversion.
 
 ## Scripts
 
-### 1. compress_inline_assets.py — 嵌入
-
-压缩本地图片并 Base64 内嵌到 HTML，**原稿不动**。
+### Build/package React/Vue output
 
 ```bash
-# 自动生成 dist/index.html
-python scripts/compress_inline_assets.py index.html
-
-# 高质量模式（截图/文字图）
-python scripts/compress_inline_assets.py in.html --target-ssim 0.99
-
-# 指定输出
-python scripts/compress_inline_assets.py in.html out.html
+python scripts/package_frontend_build.py .
+python scripts/package_frontend_build.py . --skip-build
+python scripts/package_frontend_build.py . --build-command "npm run build"
+python scripts/package_frontend_build.py . --entry dist/index.html
 ```
 
-- 支持 `<img src>`、`srcset`、CSS `url()`、JS 字符串四种图片来源
-- WebP 压缩 + SSIM 二分搜索，自动找最低满足质量的质量值
-- 输出 `.manifest.json` 报告
-
-### 2. extract_base64.py — 提取
-
-从 HTML 中提取 Base64 内嵌图片到独立文件，**同时捕获 HTML 语义上下文**。
+### Inline a specific HTML file
 
 ```bash
-# 提取到 dist/images/（自动捕获上下文）
-python scripts/extract_base64.py dist/index.html
-
-# 指定输出目录
-python scripts/extract_base64.py in.html --output-dir ./imgs
-
-# 提取并替换为占位符（用于后续重新嵌入）
-python scripts/extract_base64.py in.html --replace
+python scripts/inline_assets.py index.html
+python scripts/inline_assets.py dist/index.html --preset react-vue-build
+python scripts/inline_assets.py build/index.html --preset create-react-app
 ```
 
-- 自动捕获每张图片的 **alt**、**title**、**章节标题**、**父容器 id/class**
-- 上下文信息写入 manifest 的 `context` 字段，供 rename 使用
-- `--replace` 时输出 `.extracted.html`（占位符版），原 HTML 不变
-
-### 3. rename_images.py — 智能重命名
-
-根据 extract 步骤捕获的 HTML 语义上下文，按**优先级链**自动生成语义化文件名。
+Useful options:
 
 ```bash
-# 智能命名（默认：alt → title → heading → id → class → 序号）
-python scripts/rename_images.py dist/images/
-
-# 指定优先使用章节标题
-python scripts/rename_images.py dist/images/ --name-from heading
-
-# 纯序号命名
-python scripts/rename_images.py dist/images/ --name-from index
-
-# 预览模式
-python scripts/rename_images.py dist/images/ --dry-run
-
-# 手动覆盖（最高优先级）
-python scripts/rename_images.py dist/images/ --topic-map "img_01:自定义名,img_02:另一个名"
+python scripts/inline_assets.py index.html --out dist/index.single.html
+python scripts/inline_assets.py dist/index.html --root-dir dist
+python scripts/inline_assets.py index.html --include-ext .png,.jpg,.svg,.mp3,.mp4,.glb,.stl,.css,.js
+python scripts/inline_assets.py index.html --max-asset-mb 25 --max-total-mb 80
+python scripts/inline_assets.py index.html --image-mode webp --max-width 1800 --max-height 1800
+python scripts/inline_assets.py index.html --dry-run
 ```
 
-**命名优先级链（从小到大，渐进向外查找）：**
-
-```
-alt="葡萄接收区"        ← 图片自身的描述（最精准）
-    ↓ 没有？
-title="步骤一"          ← 图片的补充说明
-    ↓ 没有？
-<h2>葡萄接收区</h2>     ← 外层章节标题（语义范围更大）
-    ↓ 没有？
-id="step-01"           ← 父容器的 ID
-    ↓ 没有？
-class="section-intro"  ← 父容器的 class
-    ↓ 都没有？
-01.png                 ← 兜底：纯序号
-```
-
-- 自动文件名清理（非法字符过滤、长度截断、冲突加序号）
-- 无 manifest 时自动退化为纯序号命名
-- `--topic-map` 手动覆盖优先级最高
-
-## Parameters
-
-See [parameters.md](references/parameters.md) for complete parameter reference.
-
-## Dependencies
+### Validate output
 
 ```bash
-# 嵌入（compress）需要
-pip install pillow numpy
-
-# 提取（extract）和重命名（rename）仅需标准库
+python scripts/validate_single_html.py dist/index.single.html
 ```
+
+### Extract embedded assets
+
+```bash
+python scripts/extract_assets.py dist/index.single.html --output-dir extracted-assets --replace
+python scripts/rename_extracted_assets.py extracted-assets --name-from auto
+```
+
+## Frontend build handling
+
+The inliner handles common static build references:
+
+```html
+<script type="module" src="/assets/index-xxxxx.js"></script>
+<link rel="stylesheet" href="/assets/index-xxxxx.css">
+<link rel="icon" href="/favicon.ico">
+```
+
+It also processes resources inside external CSS and JS:
+
+```css
+@import "./theme.css";
+.hero { background-image: url('/assets/bg-xxxxx.png'); }
+@font-face { src: url('/assets/font-xxxxx.woff2'); }
+```
+
+```js
+const logo = "/assets/logo-xxxxx.svg";
+const model = "/assets/model-xxxxx.glb";
+import("/assets/chunk-xxxxx.js");
+```
+
+It also handles static template literals emitted by Vite/esbuild minification:
+
+```js
+var BUILDING_IMAGES=[`/buildings/buildingA.jpg`,`/buildings/buildingB.jpg`];
+```
+
+Dynamic template literals cannot be resolved deterministically and should be refactored into a static lookup table or bundler imports before packaging:
+
+```js
+const img = `/buildings/${buildingName}.jpg`;
+```
+
+The validator decodes embedded JavaScript/CSS Data URLs and scans inside them for remaining local references, so runtime-only missing-image bugs are easier to catch before handoff.
+
+The tool removes `integrity` attributes by default because SRI hashes no longer match after CSS/JS URLs become Data URLs.
+
+## Read when needed
+
+- `references/react-vue-build-packaging.md` — React/Vue/Vite/CRA/webpack static build packaging workflow.
+- `references/js-asset-detection.md` — Vite/esbuild JavaScript string/template-literal asset detection and validation.
+- `references/parameters.md` — full CLI parameter reference.
+- `references/mime-data-url-matrix.md` — MIME types and Base64 prefixes for common assets.
+- `references/threejs-model-recipes.md` — GLB/STL Data URL and Blob loading recipes.
+- `references/single-html-strategy.md` — size thresholds and course-demo packaging strategy.
+- `references/quality-gate.md` — final handoff checklist.
+- `references/troubleshooting.md` — path, browser, CORS, MIME, and size fixes.
+
+## Quality gate
+
+Before handing off a single-file HTML:
+
+1. Confirm the input entry is correct.
+2. For React/Vue projects, confirm a build was run or an existing build was intentionally reused.
+3. Confirm output path follows the right convention.
+4. Inspect the generated `.manifest.json`.
+5. Run `validate_single_html.py`.
+6. Open the output locally when possible.
+7. Check images, CSS, JS interactions, state-driven image switching, audio/video controls, and GLB/STL viewers.
+8. Prefer final HTML under 50 MB; treat above 100 MB as a heavy artifact requiring user confirmation.
+
+## v2.6.0 robustness rules for agents
+
+- For React/Vue/Vite/CRA projects, use `package_frontend_build.py` first unless the user explicitly asks to run only `inline_assets.py`.
+- Auto-detect production build entries only from `dist/index.html`, `build/index.html`, or `out/index.html`.
+- Do not auto-select `public/index.html`; it is often a source template. Use it only when the user explicitly passes it as `--entry`.
+- When calling the wrapper, interpret `--root-dir` and `--assets-root` relative to the frontend project root.
+- Use `--strict` for final Agent delivery whenever practical. It makes missing/oversized assets fail and makes validator warnings fail.
+- If the wrapper summary contains `validation_warning_count > 0`, report the warnings and do not claim the package is clean.
+

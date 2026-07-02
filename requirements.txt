@@ -1,0 +1,3 @@
+# Core scripts use Python standard library only.
+# Optional, for raster image conversion to WebP:
+pillow>=10.0.0

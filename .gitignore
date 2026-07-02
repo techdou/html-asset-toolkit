@@ -1,5 +1,12 @@
 __pycache__/
 *.pyc
-dist/
-*.manifest.json
 .DS_Store
+
+# 生成产物：内嵌打包后的单文件 HTML 和 manifest（由脚本运行时产生）
+# 注意：examples/ 下的 dist/ 目录是测试夹具输入，需要入库，所以不能笼统忽略 dist/
+*.single.html
+examples/dist/index.single.html
+examples/dist/chapter01.single.html
+examples/dist/*.manifest.json
+examples/react-vue-build/dist/*.single.html
+examples/react-vue-build/dist/*.manifest.json

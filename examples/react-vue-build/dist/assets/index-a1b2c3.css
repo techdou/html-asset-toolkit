@@ -1,0 +1,3 @@
+@import "./theme-d4e5f6.css";
+.hero { background-image: url('/assets/bg-a1b2c3.png'); font-family: DemoFont, sans-serif; }
+@font-face { font-family: DemoFont; src: url('/assets/demo-font.woff2') format('woff2'); }
