@@ -9,8 +9,8 @@ Use this checklist before handing off a single-file HTML artifact.
    - Frontend build: `dist/index.html`, `build/index.html`, or `out/index.html`.
 2. For React/Vue projects, confirm whether `npm run build` or another build command was run.
 3. Confirm the output path:
-   - Source HTML: `dist/<source-name>.single.html`.
-   - Build entry: `<build-dir>/index.single.html`.
+   - Source HTML: `dist/{source-name}.single.html`.
+   - Build entry: `{build-dir}/index.single.html`.
 4. Inspect the generated `.manifest.json`.
 5. Run `validate_single_html.py`; for React/Vue builds, inspect `--json` output if runtime images are missing.
 6. Open the generated HTML locally when possible.

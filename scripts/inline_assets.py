@@ -505,7 +505,7 @@ def is_frontend_build_entry(input_html: Path) -> bool:
 
 
 def default_out(input_html: Path) -> Path:
-    # Normal source HTML convention: <input dir>/dist/<source-name>.single.html.
+    # Normal source HTML convention: {input dir}/dist/{source-name}.single.html.
     # Example: course/index.html -> course/dist/index.single.html.
     # Frontend build convention: if input is dist/index.html or build/index.html,
     # write beside it to avoid dist/dist/index.single.html.
@@ -615,7 +615,7 @@ def main() -> int:
         "input": str(args.input_html),
         "output": str(out_path),
         "dry_run": args.dry_run,
-        "default_delivery_pattern": "source HTML: dist/<source-name>.single.html; frontend build dist/index.html or build/index.html: <build-dir>/index.single.html",
+        "default_delivery_pattern": "source HTML: dist/{source-name}.single.html; frontend build dist/index.html or build/index.html: {build-dir}/index.single.html",
         "common_index_delivery_path": "dist/index.single.html",
         "source_name": args.input_html.name,
         "preset": args.preset,

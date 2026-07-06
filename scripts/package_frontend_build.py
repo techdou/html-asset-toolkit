@@ -260,7 +260,7 @@ def main() -> int:
     if args.dry_run:
         inline_cmd.append("--dry-run")
 
-    run_command(inline_cmd, cwd=project_dir, dry_run=False)
+    run_command(inline_cmd, cwd=project_dir, dry_run=args.dry_run)
 
     validation_report: dict[str, Any] | None = None
     validation_warnings: list[str] = []

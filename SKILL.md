@@ -1,6 +1,6 @@
 ---
 name: html-asset-toolkit
-description: Package course HTML and static React/Vue builds into portable single-file HTML by embedding local assets as Base64/Data URLs, including robust CSS/JS asset rewriting and extraction back to files. Use for 单文件HTML, Base64内嵌, 资源内嵌, 离线课程演示, 交互式学习HTML, 百宝箱HTML, 标签内联, 预估体积, 本地预览, or React/Vue/Vite/CRA/Vue CLI/webpack npm run build output packaging where dist/index.html or build/index.html plus assets/CSS/JS/images/fonts/MP3/MP4/GLB/STL must become one HTML file, including Vite/esbuild JS template-literal paths like `/buildings/a.jpg`. Supports tag-inline mode (--css-js-mode tag) for CSP/CORS compatibility, size estimation without embedding (estimate_size.py), and a local preview server (serve_preview.py). For source HTML output is dist/<source-name>.single.html; for build entries output is beside the build entry, e.g. dist/index.single.html or build/index.single.html. Do not use for ordinary production web apps unless the user explicitly requests single-file/offline/Base64 packaging.
+description: Package HTML and static frontend builds into one portable single-file HTML by embedding local assets (images, CSS, JS, fonts, audio, video, GLB, STL, WASM) as Base64/Data URLs or inline tags. Also extracts embedded assets back into editable files and renames them using surrounding context. Use whenever the user wants a self-contained, offline, no-assets-folder HTML artifact — course demos, 课件, 百宝箱 HTML, 离线演示, 交互式学习页面, React/Vue/Vite/CRA/webpack build packaging — or asks to extract/inline/rename assets, estimate size, preview locally, or split inline style/script blocks. Even if they don't say "single-file", trigger when the goal is an HTML that opens anywhere with no external files.
 compatibility: Requires Python 3.10+. Optional Pillow for WebP image conversion. Frontend wrapper requires the project package manager when running npm/pnpm/yarn/bun build.
 ---
 
@@ -20,6 +20,7 @@ Trigger this skill when the user asks to:
 - Embed images, SVG, audio, video, MP3, MP4, WebM, GLB, STL, fonts, PDFs, CSS, JS, or WASM into HTML.
 - Replace local file dependencies with Base64/Data URLs for offline opening.
 - Extract embedded Base64/Data URL assets back into editable files.
+- Extract inline `<style>` or `<script>` blocks from an HTML file into external `.css`/`.js` files (reverse of tag-mode inlining).
 
 Avoid this skill for SEO, deployment, CDN, caching, general frontend refactoring, normal React/Vue development, or formal Web deployment unless the user explicitly requests a self-contained/offline artifact.
 
@@ -32,6 +33,8 @@ Avoid this skill for SEO, deployment, CDN, caching, general frontend refactoring
 | React/Vue source project | Run the build first, then package the generated static build entry. |
 | Existing `dist/index.html` or `build/index.html` | Package that build entry directly; do not rebuild unless needed. |
 | Very large MP4/GLB/STL/PDF | Warn about size; inline only if the user accepts heavy single-file output. |
+| Inline `<style>`/`<script>` blocks need extraction | Use `extract_style_script.py`; it complements `extract_assets.py` (which only handles Base64 Data URLs). |
+| Renamed assets should keep HTML links working | Pass `--update-html <path>` to `rename_extracted_assets.py` so references are rewritten in lockstep. |
 
 ## Output convention
 
@@ -125,6 +128,7 @@ python /path/to/html-asset-toolkit/scripts/package_frontend_build.py . --skip-bu
 9. Open or inspect the result when a browser/runtime is available.
 10. Report the generated path, manifest path, warnings, and any remaining local references.
 11. Never paste long Base64 strings into chat; use scripts for deterministic conversion.
+12. When running `rename_extracted_assets.py`, pass `--update-html <externalized.html>` so the renamed files keep their HTML references valid. Do not rename files without also updating references unless the user explicitly accepts broken links.
 
 ## Scripts
 
@@ -166,8 +170,28 @@ python scripts/validate_single_html.py dist/index.single.html
 
 ```bash
 python scripts/extract_assets.py dist/index.single.html --output-dir extracted-assets --replace
-python scripts/rename_extracted_assets.py extracted-assets --name-from auto
 ```
+
+Extracts Base64 Data URL assets (images, audio, models, fonts, ...) back into editable files. Writes `<stem>.externalized.html` with relative references when `--replace` is passed.
+
+### Rename extracted assets
+
+```bash
+python scripts/rename_extracted_assets.py extracted-assets --name-from auto
+python scripts/rename_extracted_assets.py extracted-assets --update-html page.externalized.html
+python scripts/rename_extracted_assets.py extracted-assets --separator _ --no-near-text
+```
+
+Renames extracted files using manifest context. By default the `auto` mode tries `alt` → `title` → `heading` → `id` → `class` → `tag`, then mines `near_text_before` for the closest `name:"..."/alt="..."` label (useful for HTML/JS data blobs that embed structured records like species or product names), then falls back to the mime group. `--update-html` rewrites references in an HTML file in lockstep with the renames so links do not break. Default separator changed to `-` in v4.0.0 (was `_`); pass `--separator _` to restore the old style.
+
+### Extract inline `<style>`/`<script>` blocks
+
+```bash
+python scripts/extract_style_script.py index.html
+python scripts/extract_style_script.py dist/index.html --dry-run --json
+```
+
+Splits inline `<style>...</style>` into external `.css` files (referenced via `<link>`) and inline `<script>...</script>` (no `src`) into `.js` files (referenced via `<script src>`). Complements `extract_assets.py`, which only handles Base64 Data URL assets. External scripts with an existing `src` are left untouched. Default output dir is `<stem>_assets/`; default externalized HTML is `<stem>.externalized.html`.
 
 ### Estimate final size (no files written)
 
@@ -260,7 +284,7 @@ Before handing off a single-file HTML:
 7. Check images, CSS, JS interactions, state-driven image switching, audio/video controls, and GLB/STL viewers.
 8. Prefer final HTML under 50 MB; treat above 100 MB as a heavy artifact requiring user confirmation.
 
-## v2.6.0 robustness rules for agents
+## Robustness rules for agents
 
 - For React/Vue/Vite/CRA projects, use `package_frontend_build.py` first unless the user explicitly asks to run only `inline_assets.py`.
 - Auto-detect production build entries only from `dist/index.html`, `build/index.html`, or `out/index.html`.
@@ -269,10 +293,13 @@ Before handing off a single-file HTML:
 - Use `--strict` for final Agent delivery whenever practical. It makes missing/oversized assets fail and makes validator warnings fail.
 - If the wrapper summary contains `validation_warning_count > 0`, report the warnings and do not claim the package is clean.
 
-## v3.0.0 features
+## Feature reference
 
 | Feature | Script | When to use |
 |---|---|---|
+| Extract `<style>`/`<script>` blocks | `extract_style_script.py` | Split inline CSS/JS back into external `.css`/`.js` files; complements `extract_assets.py` (Base64 only) |
+| HTML-aware rename | `rename_extracted_assets.py --update-html` | Rewrite references in an HTML file in lockstep with file renames so links do not break |
+| near_text smart naming | `rename_extracted_assets.py` (auto, default) | Mine `near_text_before` for the closest `name:"..."/alt="..."` label when `alt`/`title`/`heading` are empty |
 | Tag-inline mode | `inline_assets.py --css-js-mode tag` | CSP/CORS/module-script compatibility; produces `<style>`/`<script>` instead of Data URL attributes |
 | Size estimation | `estimate_size.py` | Preview the final HTML size before committing to a full run; abort via wrapper `--estimate` if over `--max-total-mb` |
 | Local preview | `serve_preview.py` | Verify the packaged HTML in a browser via local HTTP with auto port detection |

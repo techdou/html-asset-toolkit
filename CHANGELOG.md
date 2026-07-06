@@ -1,5 +1,46 @@
 # Changelog
 
+## v4.1.0 - Hardening and v4 doc alignment
+
+### Fixed
+
+- `rename_extracted_assets.py --update-html`: reference rewriting is now scoped to HTML attribute values (`src=`/`href=`/`data=`/etc.) instead of a bare `str.replace`. Previously, a filename appearing in body text, comments, or unrelated JS/CSS strings would also be rewritten.
+- `package_frontend_build.py --dry-run`: the wrapper now skips the inline subprocess entirely in dry-run mode (`run_command(..., dry_run=args.dry_run)`). Previously the wrapper always launched the subprocess with `dry_run=False` hardcoded, relying on the child's `--dry-run` flag for safety — semantically inconsistent.
+- `rename_extracted_assets.py --name-from <explicit>` (alt/title/heading/id/class/tag/mime): when the requested field is empty, the tool now drops to the mime/index fallback instead of silently falling through to the full auto field order. `--name-from alt` no longer behaves like `--name-from auto` when `alt` is missing. The shared fallback logic was extracted into `fallback_name()` to avoid duplication.
+
+### Documentation
+
+- `references/parameters.md`: corrected `extract_style_script.py` manifest default to `{output-dir}/manifest.style-script.json` (was wrongly documented as `manifest.json`, which is `extract_assets.py`'s manifest name). Added a note explaining why the names differ.
+- `README.md`: added `extract_style_script.py` to the core capability table and to the extract/rename command block; added `--update-html` example. Removed stale "v3.0.0 新增" framing (tag mode is now baseline) and the false "默认行为 = v2.6.0" claim (invalidated by the v4 separator default change). Reordered install paths to put `.agents/skills/` first.
+- `SKILL.md`: collapsed the versioned section headers ("v2.6.0 robustness rules", "v3.0.0 features", "v4.0.0 features") into a single unversioned "Feature reference" table and a "Robustness rules for agents" section. The rules and features are unchanged; only the stale version framing was removed.
+- `references/parameters.md`: renamed the "v2.6.0 wrapper validation options" section to "Wrapper validation options" (these are live defaults, not version-specific).
+- Unified placeholder style to `{source-name}`/`{build-dir}` across docs and `inline_assets.py` manifest field (the historical CHANGELOG entry at v2.2.0 is preserved verbatim as a factual record).
+
+### Notes
+
+- All fixes are backward-compatible. No defaults, output paths, or CLI signatures changed.
+- All scripts still use only the Python standard library.
+
+## v4.0.0 - Extract inline blocks, HTML-aware rename, near_text smart naming
+
+### Added
+
+- **Extract inline `<style>`/`<script>` blocks** (`extract_style_script.py`): splits inline CSS/JS back into external `.css`/`.js` files, replacing the blocks with `<link>`/`<script src>`. Complements `extract_assets.py`, which only handles Base64 Data URL assets. External scripts with an existing `src` are preserved. Supports `--dry-run`, `--json`, and writes a manifest with the same shape as `extract_assets.py`. The manifest is named `manifest.style-script.json` (not `manifest.json`) so it does not clobber `extract_assets.py`'s manifest when both extractors share the same output directory.
+- **HTML-aware rename** (`rename_extracted_assets.py --update-html <path>`): rewrites references in an HTML file in lockstep with file renames, so links do not break. Dry-run mode reports how many references would change without touching the file.
+- **near_text smart naming** (`rename_extracted_assets.py` auto mode): when `alt`/`title`/`heading`/`id`/`class`/`tag` are all empty, mines `context.near_text_before` for the closest `name:"..."/alt="..."` label. Works well on HTML/JS data blobs that embed structured records (species trees, product catalogs, taxonomy tables). Disable with `--no-near-text`.
+
+### Improved
+
+- `rename_extracted_assets.py` default separator changed from `_` to `-` (e.g. `001-七鳃鳗.png` instead of `001_image.png`). Pass `--separator _` to restore the pre-v4 style.
+- `rename_extracted_assets.py` now has its own `### Rename extracted assets` section in `SKILL.md` (was previously a one-liner inside `### Extract embedded assets`).
+- Smoke test extended with three new cases: `test_extract_style_script`, `test_rename_with_near_text`, `test_rename_update_html`.
+
+### Notes
+
+- **Breaking**: the rename separator default change is the only behavioral break. Existing invocations that relied on `_` should pass `--separator _`. All other defaults are unchanged.
+- All new and modified scripts use only the Python standard library. No new dependencies.
+- A new example, `examples/chapter02.html`, contains inline `<style>` and `<script>` blocks for `extract_style_script.py` testing.
+
 ## v3.0.0 - Tag-inline mode, size estimation, preview server, framework guides
 
 ### Added

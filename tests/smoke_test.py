@@ -16,6 +16,11 @@ ALT_EXAMPLE = ROOT / "examples" / "chapter01.html"
 ALT_OUTPUT = ROOT / "examples" / "dist" / "chapter01.single.html"
 BUILD_EXAMPLE = ROOT / "examples" / "react-vue-build" / "dist" / "index.html"
 BUILD_OUTPUT = ROOT / "examples" / "react-vue-build" / "dist" / "index.single.html"
+# Inline-blocks example for extract_style_script.py
+INLINE_EXAMPLE = ROOT / "examples" / "chapter02.html"
+INLINE_OUTPUT_HTML = ROOT / "examples" / "chapter02.externalized.html"
+INLINE_ASSET_DIR = ROOT / "examples" / "chapter02_assets"
+INLINE_MANIFEST = INLINE_ASSET_DIR / "manifest.style-script.json"
 
 
 def run(cmd: list[str]) -> None:
@@ -188,6 +193,159 @@ def test_serve_preview() -> None:
         proc.wait(timeout=5)
 
 
+def test_extract_style_script() -> None:
+    """extract_style_script.py splits <style>/<script> blocks into external files."""
+    import shutil
+    if INLINE_OUTPUT_HTML.exists():
+        INLINE_OUTPUT_HTML.unlink()
+    if INLINE_ASSET_DIR.exists():
+        shutil.rmtree(INLINE_ASSET_DIR)
+
+    run([sys.executable, "scripts/extract_style_script.py", str(INLINE_EXAMPLE)])
+    assert INLINE_OUTPUT_HTML.exists(), "externalized HTML should be written"
+    assert INLINE_ASSET_DIR.exists(), "asset dir should be created"
+    assert INLINE_MANIFEST.exists(), "manifest should be written"
+
+    text = INLINE_OUTPUT_HTML.read_text(encoding="utf-8")
+    assert "<style" not in text, "inline <style> block should be replaced"
+    assert '<link rel="stylesheet" href="chapter02_assets/' in text, "style should be referenced via <link>"
+    # External script with src must be preserved as-is.
+    assert 'src="assets/scripts/viewer.js"' in text, "external <script src> must be untouched"
+    # Inline <script> bootstrap must be replaced by a <script src> pointing at the asset dir.
+    assert 'src="chapter02_assets/' in text, "inline <script> should be replaced by <script src>"
+
+    manifest = json.loads(INLINE_MANIFEST.read_text(encoding="utf-8"))
+    assert manifest["style_count"] == 1, "exactly one <style> block expected"
+    assert manifest["script_count"] == 1, "exactly one inline <script> block expected"
+    assert manifest["style_bytes"] > 0
+    assert manifest["script_bytes"] > 0
+    kinds = {a["kind"] for a in manifest["assets"]}
+    assert kinds == {"style", "script"}, f"asset kinds mismatch: {kinds}"
+
+    # Files actually exist on disk.
+    for entry in manifest["assets"]:
+        assert (INLINE_ASSET_DIR / entry["filename"]).exists(), f"missing extracted file: {entry['filename']}"
+
+    # JSON mode should emit a valid JSON report.
+    json_cmd = [sys.executable, "scripts/extract_style_script.py", str(INLINE_EXAMPLE), "--dry-run", "--json"]
+    completed = subprocess.run(json_cmd, cwd=ROOT, check=True, capture_output=True, text=True)
+    report = json.loads(completed.stdout)
+    assert report["style_count"] == 1 and report["script_count"] == 1
+
+
+def test_rename_with_near_text() -> None:
+    """rename_extracted_assets.py should mine near_text_before for a label."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        asset_dir = td_path / "assets"
+        asset_dir.mkdir()
+        # fake extracted asset file
+        (asset_dir / "asset_001_abc123.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        manifest = td_path / "manifest.json"
+        manifest.write_text(json.dumps({
+            "assets": [{
+                "index": 1,
+                "filename": "asset_001_abc123.png",
+                "mime": "image/png",
+                "context": {
+                    "alt": "", "title": "", "heading": "", "id": "", "class": "", "tag": "", "mime_group": "image",
+                    "near_text_before": 'name:"七鳃鳗",era:"泥盆纪",image:"data:image/png;base64,',
+                },
+            }],
+        }), encoding="utf-8")
+
+        run([sys.executable, "scripts/rename_extracted_assets.py", str(asset_dir), "--manifest", str(manifest)])
+        names = [p.name for p in asset_dir.iterdir()]
+        assert any("七鳃鳗" in n for n in names), f"near_text label not used: {names}"
+        # default separator is now '-'
+        assert any(n.startswith("001-") for n in names), f"separator should be '-': {names}"
+
+
+def test_rename_update_html() -> None:
+    """rename_extracted_assets.py --update-html should rewrite references in lockstep."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        asset_dir = td_path / "assets"
+        asset_dir.mkdir()
+        (asset_dir / "asset_001_abc.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        manifest = td_path / "manifest.json"
+        manifest.write_text(json.dumps({
+            "assets": [{
+                "index": 1,
+                "filename": "asset_001_abc.png",
+                "mime": "image/png",
+                "context": {"alt": "demo image", "mime_group": "image"},
+            }],
+        }), encoding="utf-8")
+        html = td_path / "page.html"
+        html.write_text('<img src="assets/asset_001_abc.png">', encoding="utf-8")
+
+        run([sys.executable, "scripts/rename_extracted_assets.py", str(asset_dir),
+             "--manifest", str(manifest), "--update-html", str(html)])
+        # file renamed
+        assert not (asset_dir / "asset_001_abc.png").exists(), "old file should be renamed away"
+        new_files = list(asset_dir.iterdir())
+        assert len(new_files) == 1
+        new_name = new_files[0].name
+        # HTML reference rewritten
+        body = html.read_text(encoding="utf-8")
+        assert new_name in body, f"new name {new_name} not in HTML body"
+        assert "asset_001_abc.png" not in body, "old reference should be gone"
+
+
+def test_rename_update_html_scoped() -> None:
+    """--update-html must only rewrite attribute values, not body text or comments.
+
+    Regression guard for v4.1.0: a bare str.replace would also rewrite the
+    filename when it appears in prose/comments/JS, corrupting unrelated content.
+    """
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        asset_dir = td_path / "assets"
+        asset_dir.mkdir()
+        old_name = "asset_001_abc.png"
+        (asset_dir / old_name).write_bytes(b"\x89PNG\r\n\x1a\n")
+        manifest = td_path / "manifest.json"
+        manifest.write_text(json.dumps({
+            "assets": [{
+                "index": 1,
+                "filename": old_name,
+                "mime": "image/png",
+                "context": {"alt": "demo image", "mime_group": "image"},
+            }],
+        }), encoding="utf-8")
+        # The HTML references the asset in an attribute (should rewrite) AND
+        # mentions the same filename in body text + a comment (should NOT touch).
+        html = td_path / "page.html"
+        html.write_text(
+            f'<img src="assets/{old_name}">\n'
+            f'<!-- see {old_name} for reference -->\n'
+            f'<p>The file {old_name} is mentioned here in prose.</p>\n',
+            encoding="utf-8",
+        )
+
+        run([sys.executable, "scripts/rename_extracted_assets.py", str(asset_dir),
+             "--manifest", str(manifest), "--update-html", str(html)])
+
+        new_files = [p.name for p in asset_dir.iterdir()]
+        assert len(new_files) == 1
+        new_name = new_files[0]
+        assert new_name != old_name
+
+        body = html.read_text(encoding="utf-8")
+        # Attribute reference was rewritten.
+        assert new_name in body, "attribute reference should be rewritten"
+        assert f'src="assets/{old_name}"' not in body, "old attribute ref should be gone"
+        # Body text and comment survived untouched.
+        assert body.count(old_name) == 2, (
+            f"expected old name preserved exactly twice (comment + prose), "
+            f"got {body.count(old_name)}: {body!r}"
+        )
+
+
 def main() -> int:
     test_plain_course_html()
     test_react_vue_build_output()
@@ -195,6 +353,10 @@ def main() -> int:
     test_tag_inline_mode()
     test_validate_tag_mode()
     test_serve_preview()
+    test_extract_style_script()
+    test_rename_with_near_text()
+    test_rename_update_html()
+    test_rename_update_html_scoped()
     print("Smoke test passed.")
     return 0
 

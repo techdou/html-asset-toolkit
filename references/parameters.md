@@ -185,10 +185,33 @@ python scripts/extract_assets.py dist/index.single.html --output-dir extracted-a
 
 说明：`extract_assets.py` 当前主要提取 Base64 Data URL。若希望后续可逆提取 SVG，建议打包时使用 `--svg-mode base64`，不要使用 `--svg-mode utf8`。
 
+## extract_style_script.py — 提取内联 <style>/<script> 块
+
+```bash
+python scripts/extract_style_script.py index.html
+python scripts/extract_style_script.py dist/index.html --dry-run --json
+```
+
+把内联 `<style>...</style>` 拆成外部 `.css`（替换为 `<link>`），把无 `src` 的内联 `<script>...</script>` 拆成外部 `.js`（替换为 `<script src>`）。已有 `src` 的外部 `<script>` 不动。与 `extract_assets.py`（仅处理 Base64 Data URL）互补。
+
+| 参数 | 默认值 | 说明 |
+|---|---:|---|
+| `input_html` | 必填 | 输入 HTML 文件 |
+| `--output-dir` | `{stem}_assets/` | 资源输出目录（与 `extract_assets.py` 一致，可合并存放） |
+| `--out-html` | `{stem}.externalized.html` | 外链版 HTML 输出路径 |
+| `--prefix` | `asset` | 文件名前缀，生成 `asset_style_001_<hash>.css` / `asset_script_001_<hash>.js` |
+| `--manifest` | `{output-dir}/manifest.style-script.json` | 提取清单；刻意用独立名字，避免覆盖同目录下 `extract_assets.py` 的 `manifest.json` |
+| `--dry-run` | `False` | 只统计，不写文件 |
+| `--json` | `False` | 输出 JSON 报告到 stdout |
+
+manifest 字段：`{input, output_dir, out_html, style_count, script_count, style_bytes, script_bytes, assets: [{kind, filename, bytes, hash}]}`。
+
 ## rename_extracted_assets.py — 智能重命名
 
 ```bash
 python scripts/rename_extracted_assets.py extracted-assets --name-from auto
+python scripts/rename_extracted_assets.py extracted-assets --update-html page.externalized.html
+python scripts/rename_extracted_assets.py extracted-assets --separator _ --no-near-text
 ```
 
 | 参数 | 默认值 | 说明 |
@@ -197,8 +220,13 @@ python scripts/rename_extracted_assets.py extracted-assets --name-from auto
 | `--manifest` | 自动寻找 `manifest.json` | 提取清单 |
 | `--name-from` | `auto` | `auto`/`alt`/`title`/`heading`/`id`/`class`/`tag`/`mime`/`index` |
 | `--topic-map` | 空 | 手动映射，JSON 或 `asset_001:名称,...` |
-| `--dry-run` | `False` | 只预览，不重命名 |
-| `--max-length` | `72` | 文件名最大长度 |
+| `--separator` | `-` | 替换空白/下划线/连字符运行所用的分隔符；v4.0.0 起默认 `-`（旧值 `_` 可用 `--separator _` 恢复） |
+| `--no-near-text` | `False`（即默认开启 near_text） | 关闭 `near_text_before` 标签挖掘，仅用标准字段命名 |
+| `--update-html` | 空 | 指定 HTML 文件，重命名时同步替换其中的引用，避免链接失效 |
+| `--dry-run` | `False` | 只预览，不重命名（配合 `--update-html` 时也会统计将替换的引用数） |
+| `--max-stem-length` | `80` | 文件名主干最大长度 |
+
+`auto` 模式命名优先级：topic_map → alt → title → heading → id → class → tag → **near_text（v4.0.0 新增）** → mime_group fallback。near_text 步骤会从 `context.near_text_before` 中正则匹配最近的 `name:"..."/alt="..."` 等键值标签，适合 HTML/JS 里嵌套的结构化数据（物种树、商品目录、分类表）。
 
 ## package_frontend_build.py
 
@@ -240,7 +268,7 @@ python scripts/package_frontend_build.py . --build-command "npm run build" --max
 ```
 
 
-## v2.6.0 wrapper validation options
+## Wrapper validation options
 
 | Option | Default | Meaning |
 |---|---:|---|
