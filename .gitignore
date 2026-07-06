@@ -10,3 +10,7 @@ examples/dist/chapter01.single.html
 examples/dist/*.manifest.json
 examples/react-vue-build/dist/*.single.html
 examples/react-vue-build/dist/*.manifest.json
+
+# extract_style_script.py 的运行时产物（smoke test 会自动重建）
+examples/*.externalized.html
+examples/chapter02_assets/

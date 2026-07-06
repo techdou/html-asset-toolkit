@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>HTML Asset Toolkit Example — Inline Blocks</title>
+  <!-- This example deliberately inlines CSS and JS so that extract_style_script.py
+       has <style>/<script> blocks to split back out into external files. -->
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; background: #0d1b2a; color: #e0e1dd; }
+    .hero { padding: 2rem; }
+    .hero h1 { color: #f4a261; }
+    .card { border: 1px solid #415a77; border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+    .card img { max-width: 100%; }
+  </style>
+</head>
+<body>
+  <main class="hero">
+    <h1>内联块拆分示例</h1>
+    <section class="card">
+      <h2>演示图</h2>
+      <img src="assets/images/demo.png" alt="一像素演示图">
+    </section>
+  </main>
+  <script>
+    // Inline viewer bootstrap; extracted to a .js file by extract_style_script.py.
+    document.addEventListener("DOMContentLoaded", function () {
+      console.log("chapter02 loaded");
+    });
+  </script>
+  <!-- External script with src should be left untouched by the extractor. -->
+  <script src="assets/scripts/viewer.js"></script>
+</body>
+</html>
