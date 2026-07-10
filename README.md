@@ -7,7 +7,7 @@
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue)]()
 [![No Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
-[![Version](https://img.shields.io/badge/version-v4.1.0-orange)](./CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-v4.2.0-orange)](./CHANGELOG.md)
 
 ---
 
@@ -34,6 +34,7 @@ React/Vue:     npm run build → dist/index.html  →  dist/index.single.html
 |---|---|---|
 | **Asset inlining** | `inline_assets.py` | Image/SVG/audio/video/GLB/STL/fonts/PDF/CSS/JS/WASM → Base64 Data URL |
 | **Tag inlining** | `inline_assets.py --css-js-mode tag` | CSS → `<style>`, JS → `<script>`; better CSP / ES Module / `file://` compatibility |
+| **CSS/JS-only inlining** | `inline_assets.py --no-js` / `--no-css` / `--css-prepend` | Inline only CSS or only JS, or prepend a reset to each stylesheet. Replaces the legacy `inline-html-assets` skill. |
 | **Frontend packaging** | `package_frontend_build.py` | React/Vue/Vite: build → locate entry → inline → validate, one command |
 | **Size estimation** | `estimate_size.py` | Preview final HTML size before embedding, writes nothing |
 | **Local preview** | `serve_preview.py` | HTTP server with auto port detection, optional auto-open browser |
@@ -76,6 +77,18 @@ python /path/to/html-asset-toolkit/scripts/package_frontend_build.py . --estimat
 ```bash
 python /path/to/html-asset-toolkit/scripts/serve_preview.py dist/index.single.html --open
 ```
+
+**Scenario E — Inline only CSS or only JS** (legacy `inline-html-assets` use case):
+
+```bash
+# Inline only CSS, keep <script src> as external references
+python /path/to/html-asset-toolkit/scripts/inline_assets.py index.html --css-js-mode tag --no-js
+
+# Prepend a CSS reset to every inlined stylesheet
+python /path/to/html-asset-toolkit/scripts/inline_assets.py index.html --css-js-mode tag --css-prepend "*{box-sizing:border-box}"
+```
+
+> ℹ️ **Merged skill**: As of v4.2.0 the standalone `inline-html-assets` skill has been retired. Its CSS/JS-only inlining capability is fully covered here via `--no-css` / `--no-js` / `--css-prepend`, which work in both `data-url` and `tag` mode and compose with `--include-ext`. See [CHANGELOG.md](./CHANGELOG.md).
 
 ### Tag-inline mode (recommended)
 
@@ -125,6 +138,7 @@ React/Vue：npm run build 后的 dist/index.html  →  dist/index.single.html
 |---|---|---|
 | **资源内嵌** | `inline_assets.py` | 图片/SVG/音频/视频/GLB/STL/字体/PDF/CSS/JS/WASM → Base64 Data URL |
 | **标签内联** | `inline_assets.py --css-js-mode tag` | CSS → `<style>`、JS → `<script>`，CSP/ES Module/`file://` 兼容性更好 |
+| **仅内联 CSS/JS** | `inline_assets.py --no-js` / `--no-css` / `--css-prepend` | 只内联 CSS 或只内联 JS，或给每个内联样式表注入 reset。取代已下线的 `inline-html-assets` 技能 |
 | **前端一键打包** | `package_frontend_build.py` | React/Vue/Vite 项目：构建 → 定位入口 → 内嵌 → 验证，一条命令 |
 | **体积预估** | `estimate_size.py` | 打包前预估最终 HTML 大小，不写任何文件 |
 | **本地预览** | `serve_preview.py` | 自动检测端口的 HTTP 服务器，可选自动打开浏览器 |
@@ -167,6 +181,18 @@ python /path/to/html-asset-toolkit/scripts/package_frontend_build.py . --estimat
 ```bash
 python /path/to/html-asset-toolkit/scripts/serve_preview.py dist/index.single.html --open
 ```
+
+**场景 E — 只内联 CSS 或只内联 JS**（原 `inline-html-assets` 的场景）：
+
+```bash
+# 只内联 CSS，保留 <script src> 外链不动
+python /path/to/html-asset-toolkit/scripts/inline_assets.py index.html --css-js-mode tag --no-js
+
+# 给每个内联样式表注入 CSS reset
+python /path/to/html-asset-toolkit/scripts/inline_assets.py index.html --css-js-mode tag --css-prepend "*{box-sizing:border-box}"
+```
+
+> ℹ️ **技能合并**：自 v4.2.0 起原独立的 `inline-html-assets` 技能已下线。其「只内联 CSS/JS」的能力已完整并入本工具包，通过 `--no-css` / `--no-js` / `--css-prepend` 实现，在 data-url 和 tag 模式下都生效，并可与 `--include-ext` 组合。详见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ### 🏷️ 标签内联模式（推荐）
 

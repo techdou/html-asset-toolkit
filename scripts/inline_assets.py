@@ -307,6 +307,8 @@ def make_file_data_url(
 
         processed = CSS_IMPORT_RE.sub(repl_import, text)
         processed = CSS_URL_RE.sub(repl_css, processed)
+        if getattr(args, "css_prepend", None):
+            processed = args.css_prepend + "\n" + processed
         payload = processed.encode("utf-8")
         return encode_data_url(payload, "text/css"), len(raw), "text/css", "css data-url; nested @import and url() processed"
 
@@ -467,6 +469,8 @@ def inline_html(html: str, args: argparse.Namespace, html_dir: Path) -> tuple[st
             # Could not inline (missing or external); keep the original tag.
             return match.group(0)
         css_text = extract_data_url_text(data_url)
+        if getattr(args, "css_prepend", None):
+            css_text = args.css_prepend + "\n" + css_text
         tag = match.group(0)
         media = extract_attr_value(tag, "media")
         media_attr = f' media="{media}"' if media else ""
@@ -588,7 +592,25 @@ def main() -> int:
     parser.add_argument("--process-external-js", action=argparse.BooleanOptionalAction, default=True, help="Inline local asset strings inside external JS before embedding JS.")
     parser.add_argument("--remove-integrity", action=argparse.BooleanOptionalAction, default=True, help="Remove integrity= attributes because SRI hashes no longer match after inlining CSS/JS.")
     parser.add_argument("--css-js-mode", choices=["data-url", "tag"], default="data-url", help="How to embed CSS/JS: data-url (default, <link>/<script> keep href/src as data URLs) or tag (replace with inline <style>/<script> blocks for better CSP/CORS compat).")
+    parser.add_argument("--no-css", action="store_true", help="Skip CSS inlining (tag-mode <link stylesheet> and CSS @import). Backward-compat alias for --exclude-ext .css.")
+    parser.add_argument("--no-js", action="store_true", help="Skip JS inlining (tag-mode <script src> and JS asset strings). Backward-compat alias for --exclude-ext .js,.mjs.")
+    parser.add_argument("--css-prepend", default=None, help="Text prepended to every inlined CSS block before it is embedded. Useful for injecting CSS resets or overrides at the top of each inlined stylesheet.")
     args = parser.parse_args()
+
+    # Normalize --no-css/--no-js into include/exclude-ext filters so they work
+    # uniformly in both data-url and tag mode, and compose with --include-ext.
+    if args.no_css:
+        existing = args.exclude_ext or ""
+        css_exts = {".css"}
+        cur = set(existing.split(",")) if existing else set()
+        cur |= css_exts
+        args.exclude_ext = ",".join(sorted(cur))
+    if args.no_js:
+        existing = args.exclude_ext or ""
+        js_exts = {".js", ".mjs"}
+        cur = set(existing.split(",")) if existing else set()
+        cur |= js_exts
+        args.exclude_ext = ",".join(sorted(cur))
 
     if not args.input_html.exists():
         print(f"ERROR: input HTML not found: {args.input_html}", file=sys.stderr)

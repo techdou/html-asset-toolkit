@@ -1,9 +1,16 @@
+# ── Python ──────────────────────────────────────────────
 __pycache__/
-*.pyc
-.DS_Store
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.Python
 
-# 生成产物：内嵌打包后的单文件 HTML 和 manifest（由脚本运行时产生）
-# 注意：examples/ 下的 dist/ 目录是测试夹具输入，需要入库，所以不能笼统忽略 dist/
+# ── 生成产物：内嵌打包后的单文件 HTML 和 manifest ──────
+# 注意：examples/ 下的 dist/ 目录是测试夹具输入，需要入库，
+# 所以不能笼统忽略 dist/，只能精确忽略脚本运行时生成的产物。
 *.single.html
 examples/dist/index.single.html
 examples/dist/chapter01.single.html
@@ -14,3 +21,40 @@ examples/react-vue-build/dist/*.manifest.json
 # extract_style_script.py 的运行时产物（smoke test 会自动重建）
 examples/*.externalized.html
 examples/chapter02_assets/
+
+# ── 敏感信息 / 秘钥 / 凭证（防御性，绝不入库）──────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+*.keystore
+secrets.json
+credentials.json
+*.secret
+# API / 访问令牌常见命名
+*_api_key*
+*_token*
+*.netrc
+
+# ── 开发软件配置目录 / IDE / 编辑器（不上传）────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# ── 操作系统产生的文件 ─────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+ehthumbs.db
+
+# ── 日志 / 临时文件 ────────────────────────────────────
+*.log
+.tmp/
+tmp/

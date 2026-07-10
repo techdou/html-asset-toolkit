@@ -1,5 +1,25 @@
 # Changelog
 
+## v4.2.0 - Merge inline-html-assets, add CSS/JS-only inlining flags
+
+### Added
+
+- **`--no-css` / `--no-js` flags** (`inline_assets.py`): skip CSS or JS inlining selectively. Internally mapped to `--exclude-ext .css` (resp. `.js,.mjs`) so they work uniformly in both `data-url` and `tag` mode and compose with `--include-ext`. Replaces the standalone `inline-html-assets` skill's `--no-css`/`--no-js` switches.
+- **`--css-prepend` flag** (`inline_assets.py`): text prepended to every inlined CSS block before embedding, in both `data-url` and `tag` mode. Useful for injecting CSS resets or global overrides at the top of each inlined stylesheet. Ported from the retired `inline-html-assets` skill.
+
+### Changed
+
+- **Retired `inline-html-assets` skill**: its CSS/JS-only inlining capability is now fully covered by this toolkit. The standalone skill's `SKILL.md` description and trigger phrases ("内联CSS", "内联JS", "把CSS嵌入HTML", "单文件HTML", "inline styles", "inline scripts") have been absorbed into `SKILL.md` routing so existing user phrasing still routes here.
+- **`SKILL.md`**: added CSS/JS-only inlining to the Agent routing list and a dedicated command block. The description now explicitly states it supersedes the legacy skill.
+- **`README.md`**: bumped version to v4.2.0, added "CSS/JS-only inlining" row to both the English and Chinese capability tables, added Quick-start Scenario E in both languages, and added a merge notice.
+- **`references/parameters.md`**: documented `--no-css`, `--no-js`, `--css-prepend`.
+- **`.gitignore`**: hardened with defensive rules for secrets/keys/credentials (`.env`, `*.pem`, `*.key`, `*_api_key*`, `*_token*`, etc.), IDE/editor config dirs (`.vscode/`, `.idea/`), and OS junk files. No previously-tracked files are affected.
+
+### Notes
+
+- All new flags default to off / empty, so existing invocations are unchanged.
+- Smoke test (19 cases) still passes without modification.
+
 ## v4.1.0 - Hardening and v4 doc alignment
 
 ### Fixed

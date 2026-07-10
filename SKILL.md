@@ -1,12 +1,12 @@
 ---
 name: html-asset-toolkit
-description: Package HTML and static frontend builds into one portable single-file HTML by embedding local assets (images, CSS, JS, fonts, audio, video, GLB, STL, WASM) as Base64/Data URLs or inline tags. Also extracts embedded assets back into editable files and renames them using surrounding context. Use whenever the user wants a self-contained, offline, no-assets-folder HTML artifact — course demos, 课件, 百宝箱 HTML, 离线演示, 交互式学习页面, React/Vue/Vite/CRA/webpack build packaging — or asks to extract/inline/rename assets, estimate size, preview locally, or split inline style/script blocks. Even if they don't say "single-file", trigger when the goal is an HTML that opens anywhere with no external files.
+description: Package HTML and static frontend builds into one portable single-file HTML by embedding local assets (images, CSS, JS, fonts, audio, video, GLB, STL, WASM) as Base64/Data URLs or inline tags. Also extracts embedded assets back into editable files and renames them using surrounding context. Use whenever the user wants a self-contained, offline, no-assets-folder HTML artifact — course demos, 课件, 百宝箱 HTML, 离线演示, 交互式学习页面, React/Vue/Vite/CRA/webpack build packaging — or asks to extract/inline/rename assets, estimate size, preview locally, or split inline style/script blocks. Triggers on phrases like 内联CSS, 内联JS, 把CSS嵌入HTML, 单文件HTML, inline styles, inline scripts, inline CSS/JS files into HTML. Even if they don't say "single-file", trigger when the goal is an HTML that opens anywhere with no external files. Supersedes the legacy inline-html-assets skill (CSS/JS-only inlining is handled by --no-images-style equivalent flags here).
 compatibility: Requires Python 3.10+. Optional Pillow for WebP image conversion. Frontend wrapper requires the project package manager when running npm/pnpm/yarn/bun build.
 ---
 
 # HTML Asset Toolkit
 
-Use this skill when the user needs a **portable single-file HTML artifact** for course demos, offline teaching pages, interactive rich-text HTML, 百宝箱 HTML, or static React/Vue build outputs.
+Use this skill when the user needs a **portable single-file HTML artifact** for course demos, offline teaching pages, interactive rich-text HTML, 百宝箱 HTML, or static React/Vue build outputs. Also covers the CSS/JS-only inlining use case that the legacy `inline-html-assets` skill handled.
 
 Do **not** use it for normal production Web projects unless the user explicitly asks for single-file, offline, Base64/Data URL, or no-assets-folder packaging.
 
@@ -19,6 +19,7 @@ Trigger this skill when the user asks to:
 - Inline `dist/index.html` or `build/index.html` with its `assets/`, `static/`, `css/`, `js/`, `img/`, fonts, media, GLB, STL, or WASM files.
 - Embed images, SVG, audio, video, MP3, MP4, WebM, GLB, STL, fonts, PDFs, CSS, JS, or WASM into HTML.
 - Replace local file dependencies with Base64/Data URLs for offline opening.
+- **Inline only CSS or only JS** into an HTML (`--no-js` / `--no-css`), or **prepend CSS reset/overrides** to each inlined stylesheet (`--css-prepend`). This is the legacy `inline-html-assets` use case, now fully covered here.
 - Extract embedded Base64/Data URL assets back into editable files.
 - Extract inline `<style>` or `<script>` blocks from an HTML file into external `.css`/`.js` files (reverse of tag-mode inlining).
 
@@ -158,6 +159,21 @@ python scripts/inline_assets.py index.html --include-ext .png,.jpg,.svg,.mp3,.mp
 python scripts/inline_assets.py index.html --max-asset-mb 25 --max-total-mb 80
 python scripts/inline_assets.py index.html --image-mode webp --max-width 1800 --max-height 1800
 python scripts/inline_assets.py index.html --dry-run
+```
+
+### CSS/JS-only inlining (replaces legacy inline-html-assets)
+
+When the user wants to inline only CSS or only JS (the old `inline-html-assets` use case), use `--no-css` / `--no-js`. These map to extension filters so they work in both `data-url` and `tag` mode and compose with `--include-ext`.
+
+```bash
+# Inline everything except JS (only CSS + images + media get embedded)
+python scripts/inline_assets.py index.html --css-js-mode tag --no-js
+
+# Inline only CSS/JS tags, skip all binary assets
+python scripts/inline_assets.py index.html --css-js-mode tag --include-ext .css,.js
+
+# Prepend a CSS reset/override to every inlined stylesheet (both modes)
+python scripts/inline_assets.py index.html --css-js-mode tag --css-prepend "/* custom reset */ *{box-sizing:border-box}"
 ```
 
 ### Validate output

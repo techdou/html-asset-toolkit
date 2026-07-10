@@ -75,6 +75,9 @@ python scripts/inline_assets.py index.html --out dist/index.single.html
 | `--remove-integrity` | `True` | 移除 `integrity=` 属性；CSS/JS 改成 Data URL 后原 SRI 哈希会失效 |
 | `--no-remove-integrity` | - | 保留 `integrity=` 属性，不推荐用于单文件打包 |
 | `--css-js-mode` | `data-url` | CSS/JS 嵌入方式：`data-url`（默认，保持 href/src 为 Data URL）或 `tag`（替换为 `<style>`/`<script>` 标签，CSP/CORS 兼容性更好） |
+| `--no-css` | `False` | 跳过 CSS 内联（tag 模式 `<link stylesheet>` 和 CSS `@import`）；内部等价于追加 `--exclude-ext .css`，与 `--include-ext` 组合生效 |
+| `--no-js` | `False` | 跳过 JS 内联（tag 模式 `<script src>` 和 JS 资源字符串）；内部等价于追加 `--exclude-ext .js,.mjs` |
+| `--css-prepend` | 空 | 在每个被内联的 CSS 块开头注入的文本；data-url 和 tag 模式都生效；适合注入 CSS reset 或全局覆盖规则 |
 
 ## estimate_size.py — 预估最终体积（不写文件）
 
