@@ -68,6 +68,8 @@ my-app/out/index.html     -> my-app/out/index.single.html
 ## Preferred workflows
 
 > **Recommended**: use `--css-js-mode tag` by default. It produces `<style>`/`<script>` blocks instead of Data URL attributes, which is more reliable for ES modules, CSP-restricted platforms (LMS/enterprise wiki/公众号), and `file://` offline opening. Only keep the default `data-url` when you need `extract_assets.py` reversible extraction. See `references/inline-modes.md`.
+>
+> Tag mode automatically escapes `</script>`/`</style>` inside the inlined JS/CSS as `<\/script>`/`<\/style>` so the HTML parser cannot close the tag early. This is essential for React/Vue minified runtimes, which almost always contain the literal `</script>`. The escape is semantically transparent: `\/` evaluates to `/` in JS and `\` is a valid CSS escape, so runtime behavior is unchanged.
 
 ### A. Plain course HTML
 
@@ -233,7 +235,7 @@ Auto-detects the first available port and optionally opens the browser. Press Ct
 python scripts/inline_assets.py index.html --css-js-mode tag
 ```
 
-Replaces `<link rel="stylesheet" href="style.css">` with `<style>...</style>` and `<script src="app.js">` with `<script>...</script>` instead of Data URL attributes. Better for CSP/CORS/module-script compatibility. CSS/JS internal resources are still recursively inlined as Data URLs.
+Replaces `<link rel="stylesheet" href="style.css">` with `<style>...</style>` and `<script src="app.js">` with `<script>...</script>` instead of Data URL attributes. Better for CSP/CORS/module-script compatibility. CSS/JS internal resources are still recursively inlined as Data URLs. Any `</script>`/`</style>` inside the inlined content is escaped to `<\/script>`/`<\/style>` to prevent premature tag closure; `validate_single_html.py` reports an unescaped closing tag as an error.
 
 ## Frontend build handling
 
@@ -274,6 +276,30 @@ const img = `/buildings/${buildingName}.jpg`;
 The validator decodes embedded JavaScript/CSS Data URLs and scans inside them for remaining local references, so runtime-only missing-image bugs are easier to catch before handoff.
 
 The tool removes `integrity` attributes by default because SRI hashes no longer match after CSS/JS URLs become Data URLs.
+
+## Next.js static export
+
+Next.js with `output: 'export'` produces an `out/` directory whose assets live under `_next/`. Two specifics are handled automatically:
+
+- **Dynamic import chunks**: `dynamic(() => import(...), { ssr: false })` emits bare `static/chunks/x.js` references inside the runtime JS, but the files physically sit at `_next/static/chunks/x.js`. When a `_next/` directory is detected, the inliner retries these references under `_next/` automatically — no manual symlink required. This fallback applies to any preset (including `generic`) whenever `_next/` exists.
+- **`--preset nextjs`**: a documentation/manifest marker for Next.js exports. The path fallback is driven by directory detection, not the preset, so `react-vue-build` works identically.
+
+```bash
+npm run build
+python scripts/inline_assets.py out/index.html --preset nextjs --css-js-mode tag
+python scripts/validate_single_html.py out/index.single.html
+```
+
+## Three.js Draco-compressed models
+
+GLB models using `KHR_draco_mesh_compression` require decoder files (`draco_decoder.js`, `draco_wasm_wrapper.js`, `draco_decoder.wasm`) that Three.js fetches from the Google CDN at runtime. These are not part of the local build output.
+
+- `validate_single_html.py` emits a dedicated warning when it detects `draco_decoder` references, pointing at the CDN URL and listing the files needed for offline use. Under `--strict` this is a recoverable warning, not a fatal error (the page works online).
+- `inline_assets.py --fetch-cdn draco` downloads the three decoder files into `<root-dir>/draco/` before packaging. Version is extracted from the JS (`gstatic.com/draco/versioned/decoders/X.X.X/`), defaulting to 1.5.5. Download failures degrade to a note and do not abort packaging. After download, ensure the app's `DRACOLoader.setDecoderPath` points at the local `draco/` path — the tool does not rewrite runtime loader configuration.
+
+```bash
+python scripts/inline_assets.py out/index.html --css-js-mode tag --fetch-cdn draco
+```
 
 ## Read when needed
 

@@ -7,6 +7,10 @@ __pycache__/
 venv/
 env/
 .Python
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
 
 # ── 生成产物：内嵌打包后的单文件 HTML 和 manifest ──────
 # 注意：examples/ 下的 dist/ 目录是测试夹具输入，需要入库，
@@ -21,6 +25,17 @@ examples/react-vue-build/dist/*.manifest.json
 # extract_style_script.py 的运行时产物（smoke test 会自动重建）
 examples/*.externalized.html
 examples/chapter02_assets/
+
+# --fetch-cdn 下载的 Draco 解码器文件（运行时产物，非源码）
+draco/
+
+# ── Node / 前端项目残留（本工具是纯 Python，但 examples 可能被用于测试前端项目）──
+node_modules/
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+.npm/
+.pnpm-store/
 
 # ── 敏感信息 / 秘钥 / 凭证（防御性，绝不入库）──────────
 .env
@@ -37,6 +52,8 @@ credentials.json
 *_api_key*
 *_token*
 *.netrc
+.id_rsa
+.id_ed25519
 
 # ── 开发软件配置目录 / IDE / 编辑器（不上传）────────────
 .vscode/
@@ -46,6 +63,8 @@ credentials.json
 *~
 .project
 .settings/
+.fleet/
+.history/
 
 # ── 操作系统产生的文件 ─────────────────────────────────
 .DS_Store

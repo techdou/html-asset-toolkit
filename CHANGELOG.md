@@ -1,5 +1,28 @@
 # Changelog
 
+## v4.3.0 - React/Next.js production reliability
+
+### Fixed
+
+- **P0 — `</script>` injection in tag mode** (`inline_assets.py`): when `--css-js-mode tag` placed raw JS/CSS inside `<script>`/`<style>`, any literal `</script>` / `</style>` in the content (React/Vue minified runtimes almost always contain one) made the HTML parser close the tag early, leaking the rest of the JS as visible text and breaking the page. Tag mode now escapes `</script>` → `<\/script>` and `</style>` → `<\/style>` before inlining. The escape is semantically transparent (`\/` evaluates to `/` in JS; `\` is a valid CSS escape). Data-url mode is unaffected.
+- **Validator error for unescaped `</script>`** (`validate_single_html.py`): uses a state-machine scanner that mimics the HTML parser's raw-text state to detect an unescaped `</script>`/`</style>` inside inline tag content. It skips the escaped form `<\/tag>` and catches leaks even when the content contains paired `<script>...</script>` literals (common in React/Vue minified runtimes). Reported as an **error** via a new top-level `errors` list; errors always cause a non-zero exit code, independent of `--strict`.
+
+### Added
+
+- **P1 — Next.js `_next/` path fallback** (`inline_assets.py`): `dynamic(() => import(...), { ssr: false })` emits bare `static/chunks/x.js` references, but the files live under `_next/static/`. When a `_next/` subdirectory is detected under any candidate root, `resolve_asset` now retries unresolved references under `_next/` automatically — no manual symlink. The fallback is directory-driven and fires for every preset; `--preset nextjs` is added as a manifest marker.
+- **P2 — Draco decoder detection** (`validate_single_html.py`): when inline JS (tag-mode `<script>` blocks or decoded `text/javascript` Data URLs) references `draco_decoder` / `DRACOLoader`, the validator emits a dedicated warning in a new `draco_warnings` field, listing the required files and the `gstatic.com` CDN URL. Under `--strict` this is a recoverable warning, not a fatal error (the page works online).
+- **P2 — `--fetch-cdn draco`** (`inline_assets.py`): downloads `draco_decoder.js`, `draco_wasm_wrapper.js`, and `draco_decoder.wasm` from the CDN (version extracted from JS, default 1.5.5) into `<root-dir>/draco/` before packaging. Network failures degrade to a note and never abort the run. The tool does not rewrite runtime `DRACOLoader.setDecoderPath`; users must point the loader at the local `draco/` path for full offline support. Default is `off`; existing offline behavior is unchanged.
+
+### Changed
+
+- `validate_single_html.py` console output now prints an `Errors:` section (above warnings) and a `Draco decoder notice:` section. `errors` and `draco_warnings` fields are added to the JSON report. The "No warnings." message became "No errors or warnings.".
+- `SKILL.md`, `references/inline-modes.md`, `references/react-vue-build-packaging.md`, `references/threejs-model-recipes.md`, `references/parameters.md`, `references/troubleshooting.md` document the three fixes.
+
+### Notes
+
+- All changes are backward-compatible. P0 is a bug fix; P1/P2 additions default to off/directory-detected. `--fetch-cdn` defaults to `off` and only loads `urllib.request` when enabled, so the tool remains offline-by-default.
+- Smoke test extended with three cases: `test_p0_script_escape`, `test_nextjs_fallback`, `test_draco_warning` (13 total, all passing). `--fetch-cdn` is network-dependent and not exercised by the offline smoke test.
+
 ## v4.2.0 - Merge inline-html-assets, add CSS/JS-only inlining flags
 
 ### Added

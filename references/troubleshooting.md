@@ -134,6 +134,30 @@ python scripts/inline_assets.py dist/index.html --css-js-mode tag
 
 The module script becomes `<script type="module">/* code */</script>`, which is reliably supported.
 
+## Tag mode produces visible JS text or broken page (React/Vue)
+
+If the inline `<script>` block contains a literal `</script>` (common in React/Vue minified runtimes), the HTML parser closes the tag early and the rest of the JS leaks as visible text. Since v4.3.0 the inliner escapes these automatically (`</script>` → `<\/script>`), so this should not happen. If you still see it:
+
+- Ensure you are running the current `inline_assets.py`.
+- `validate_single_html.py` reports an unescaped `</script>` as an **error**; fix the inliner output before handoff.
+
+## Next.js dynamic import chunks are missing
+
+Next.js `dynamic(() => import(...), { ssr: false })` emits bare `static/chunks/x.js` references, but the files live under `_next/static/chunks/`. Since v4.3.0 the inliner retries these under `_next/` automatically when a `_next/` directory exists — no manual symlink needed. If chunks are still reported `missing_or_external`:
+
+- Confirm the build output really has `_next/` under the build root (not a flattened export).
+- You can use `--preset nextjs` to mark the manifest, but the fallback is directory-driven and works with any preset.
+
+## 3D model does not load offline (Draco compression)
+
+GLB models with `KHR_draco_mesh_compression` need decoder files that Three.js fetches from the Google CDN at runtime. `validate_single_html.py` emits a dedicated Draco warning listing the required files and CDN URL. To embed them:
+
+```bash
+python scripts/inline_assets.py out/index.html --css-js-mode tag --fetch-cdn draco
+```
+
+This downloads `draco_decoder.js`, `draco_wasm_wrapper.js`, and `draco_decoder.wasm` into `<root-dir>/draco/`. Then ensure the app's `DRACOLoader.setDecoderPath` points at the local `draco/` path. The warning is non-fatal under `--strict` because the page works online.
+
 ## Estimated size exceeds the limit
 
 Run `estimate_size.py` before committing to a full packaging run:

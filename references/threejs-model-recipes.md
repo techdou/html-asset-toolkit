@@ -96,4 +96,30 @@ loader.load(blobUrl, onLoad);
 - 网页展示优先 GLB，不优先 STL。
 - STL 只保存几何，不保存材质、纹理和层级；教学展示可用，但正式 Web 3D 推荐 GLB。
 - 大模型先做 Draco/Meshopt 压缩，再决定是否 Base64 内嵌。
-- 单文件课程 Demo 中，模型太大时应在页面中加入“模型加载中”的提示。
+- 单文件课程 Demo 中，模型太大时应在页面中加入”模型加载中”的提示。
+
+## Draco 压缩与离线加载
+
+GLB 模型如果用了 `KHR_draco_mesh_compression`，Three.js 的 `DRACOLoader` 会在运行时从 Google CDN 远程拉取解码器：
+
+- `draco_decoder.js`（asm.js 路径）
+- `draco_wasm_wrapper.js` + `draco_decoder.wasm`（wasm 路径）
+
+这些文件不在本地构建产物里。直接打包后，离线环境无法加载模型。
+
+### 工具的 Draco 支持
+
+1. **验证提示**：`validate_single_html.py` 扫描内联 JS（包括 `<script>` 块和解码后的 `text/javascript` Data URL），检测到 `draco_decoder` / `DRACOLoader` 引用时输出专用 warning，给出 CDN 下载地址和所需文件列表。在 `--strict` 模式下这是可恢复 warning，不是致命 error（联网环境功能正常）。
+
+2. **自动下载**：`inline_assets.py --fetch-cdn draco` 在打包前从 `gstatic.com/draco/versioned/decoders/X.X.X/` 下载三个解码器文件到 `<root-dir>/draco/`。版本号优先从 JS 代码中提取，提取不到则用默认 1.5.5。下载失败（无网络/CDN 不可达）会降级为提示，不中断打包。
+
+   ```bash
+   python scripts/inline_assets.py out/index.html --css-js-mode tag --fetch-cdn draco
+   ```
+
+3. **运行时配合**：工具只负责下载文件，不会改写业务 JS 里的 `DRACOLoader.setDecoderPath` 配置。下载完成后，需要确保应用代码把 loader 路径指向本地 `draco/` 目录，单 HTML 才能真正离线加载模型。
+
+   ```js
+   const loader = new DRACOLoader();
+   loader.setDecoderPath('draco/');  // 指向 --fetch-cdn 下载的本地目录
+   ```

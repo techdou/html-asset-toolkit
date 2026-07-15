@@ -55,6 +55,97 @@ TEXT_ASSET_MIMES = {
 STYLE_BLOCK_RE = re.compile(r"<style\b[^>]*>(?P<content>.*?)</style>", re.IGNORECASE | re.DOTALL)
 SCRIPT_BLOCK_RE = re.compile(r"<script\b(?![^>]*\bsrc\s*=)[^>]*>(?P<content>.*?)</script>", re.IGNORECASE | re.DOTALL)
 
+# Opening tags and closing-tag searcher for the inline-leak state machine.
+SCRIPT_OPEN_RE = re.compile(r"<script\b", re.IGNORECASE)
+STYLE_OPEN_RE = re.compile(r"<style\b", re.IGNORECASE)
+# Any closing tag start (escaped <\/script is handled by the backslash check).
+SCRIPT_CLOSE_SEARCH_RE = re.compile(r"</script", re.IGNORECASE)
+STYLE_CLOSE_SEARCH_RE = re.compile(r"</style", re.IGNORECASE)
+SRC_ATTR_RE = re.compile(r"\bsrc\s*=", re.IGNORECASE)
+# Unescaped closing tag: not preceded by a backslash. Used to scan the leak
+# region after a block's real closing tag.
+UNESCAPED_SCRIPT_CLOSE_RE = re.compile(r"(?<!\\)</script", re.IGNORECASE)
+UNESCAPED_STYLE_CLOSE_RE = re.compile(r"(?<!\\)</style", re.IGNORECASE)
+
+
+def find_inline_tag_leaks(html: str, open_re: re.Pattern, close_search_re: re.Pattern,
+                          unescaped_close_re: re.Pattern, tag_name: str) -> list[str]:
+    """Detect unescaped closing tags inside inline <script>/<style> blocks.
+
+    A naive regex like SCRIPT_BLOCK_RE uses non-greedy ``.*?</script>`` and
+    truncates content at the first ``</script>``, so it cannot see an unescaped
+    closing tag hiding inside the content. This scanner mimics the HTML parser's
+    raw-text state: from each inline opening tag it skips escaped ``<\\/tag``
+    forms (the parser does not treat them as closing tags) and treats the first
+    unescaped ``</tag`` as the real closing tag. It then checks the region
+    between that closing tag and the next opening tag — in a well-formed
+    document this is just inter-tag text, so an unescaped ``</tag`` there means
+    the previous block was truncated early and its content leaked.
+
+    Known limitation: if the leaked content itself contains a ``<tag`` literal
+    (e.g. ``var b="<script>"``), the scanner treats it as the next opening tag
+    and may miss the leak. This is an adversarial construction that does not
+    occur in real React/Vue minified output, where ``</script>`` appears inside
+    string literals or hydration data but not as a bare ``<script>`` token.
+    """
+    errors: list[str] = []
+    i = 0
+    block_no = 0
+    n = len(html)
+    while i < n:
+        m = open_re.search(html, i)
+        if not m:
+            break
+        tag_start = m.start()
+        gt = html.find(">", tag_start)
+        if gt < 0:
+            break
+        # Skip external <script src=...>; only inline blocks are in scope.
+        if tag_name == "script" and SRC_ATTR_RE.search(html, tag_start, gt):
+            i = gt + 1
+            continue
+        block_no += 1
+        j = gt + 1
+        real_close = -1
+        while j < n:
+            cm = close_search_re.search(html, j)
+            if not cm:
+                break
+            pos = cm.start()
+            # Escaped form <\/tag: backslash before the slash. The HTML parser
+            # does NOT see this as a closing tag, so skip and keep scanning.
+            if pos > 0 and html[pos - 1] == "\\":
+                j = cm.end()
+                continue
+            real_close = pos
+            break
+        if real_close < 0:
+            # Unterminated block; leave it to other checks.
+            break
+        # Move past the closing tag's '>' so the leak scan excludes the tag itself.
+        close_gt = html.find(">", real_close)
+        after_close = close_gt + 1 if close_gt >= 0 else real_close + len("</") + len(tag_name)
+        # Region between this block's closing tag and the next opening tag. In a
+        # well-formed document this is inter-tag whitespace/text. An unescaped
+        # </tag> here means the previous block was truncated early.
+        next_open = open_re.search(html, after_close)
+        region_end = next_open.start() if next_open else n
+        region = html[after_close:region_end]
+        if unescaped_close_re.search(region):
+            errors.append(
+                f"inline <{tag_name}> block #{block_no} contains an unescaped </{tag_name}>; "
+                "the HTML parser closes the tag early and the rest of the content leaks as visible text"
+            )
+        i = region_end if next_open else n
+    return errors
+
+# Detect Three.js Draco decoder references. These runtimes fetch
+# draco_decoder.js / draco_wasm_wrapper.js / draco_decoder.wasm from a CDN at
+# load time, so an offline single-file artifact cannot render the model without
+# extra steps. Warn (not error) because the page still works online.
+DRACO_REF_RE = re.compile(r"draco_decoder|draco_wasm_wrapper|DRACOLoader", re.IGNORECASE)
+DRACO_VERSION_RE = re.compile(r"gstatic\.com/draco/versioned/decoders/(\d+\.\d+\.\d+)", re.IGNORECASE)
+
 
 def decode_payload(match: re.Match) -> bytes:
     clean = re.sub(r"\s+", "", match.group("data"))
@@ -112,7 +203,12 @@ def main() -> int:
     bytes_by_mime: defaultdict[str, int] = defaultdict(int)
     assets = []
     warnings = []
+    errors: list[str] = []
+    draco_warnings: list[str] = []
     decoded_text_refs: list[dict] = []
+    # Collect every JS text blob we encounter (data-url JS + inline <script>)
+    # so the Draco check covers both embedding strategies with one pass.
+    js_text_blobs: list[str] = []
 
     base64_spans: list[tuple[int, int]] = []
     for i, match in enumerate(DATA_URL_BASE64_RE.finditer(html), 1):
@@ -130,6 +226,8 @@ def main() -> int:
                 nested_refs = collect_remaining_refs(decoded_text)
                 if nested_refs["attributes"] or nested_refs["css_urls"] or nested_refs["js_strings"]:
                     decoded_text_refs.append({"asset_index": i, "mime": mime, "remaining_refs": nested_refs})
+                if mime in {"text/javascript", "application/javascript", "application/x-javascript"}:
+                    js_text_blobs.append(decoded_text)
             except Exception:
                 warnings.append(f"asset #{i} {mime} could not be decoded as UTF-8 text for nested reference validation")
         if decoded > args.max_asset_mb * 1024 * 1024:
@@ -160,11 +258,45 @@ def main() -> int:
         if block_refs["attributes"] or block_refs["css_urls"] or block_refs["js_strings"]:
             tag_inline_refs.append({"block": i, "type": "style", "remaining_refs": block_refs})
     for i, m in enumerate(SCRIPT_BLOCK_RE.finditer(html), 1):
-        block_refs = collect_remaining_refs(m.group("content"))
+        content = m.group("content")
+        js_text_blobs.append(content)
+        block_refs = collect_remaining_refs(content)
         if block_refs["attributes"] or block_refs["css_urls"] or block_refs["js_strings"]:
             tag_inline_refs.append({"block": i, "type": "script", "remaining_refs": block_refs})
     if tag_inline_refs:
         warnings.append("remaining non-data local references exist inside inline <style>/<script> blocks")
+
+    # Unescaped </script>/<style> inside an inline tag breaks the page: the HTML
+    # parser closes the tag early and the rest of the JS/CSS leaks as visible
+    # text. This is a hard error. The state-machine scanner skips escaped
+    # <\/tag forms so it catches leaks even when the content contains paired
+    # <tag>...</tag> literals (common in React/Vue minified runtimes).
+    errors.extend(find_inline_tag_leaks(
+        html, SCRIPT_OPEN_RE, SCRIPT_CLOSE_SEARCH_RE, UNESCAPED_SCRIPT_CLOSE_RE, "script"))
+    errors.extend(find_inline_tag_leaks(
+        html, STYLE_OPEN_RE, STYLE_CLOSE_SEARCH_RE, UNESCAPED_STYLE_CLOSE_RE, "style"))
+
+    # Three.js Draco decoder check. GLB models with KHR_draco_mesh_compression
+    # fetch decoder files from a CDN at runtime; an offline artifact cannot load
+    # them. This is a recoverable warning (works online), never an error.
+    draco_hit = False
+    draco_version = None
+    for blob in js_text_blobs:
+        if DRACO_REF_RE.search(blob):
+            draco_hit = True
+            vm = DRACO_VERSION_RE.search(blob)
+            if vm and not draco_version:
+                draco_version = vm.group(1)
+    if draco_hit:
+        ver = draco_version or "1.5.5"
+        draco_warnings.append(
+            "Three.js Draco decoder files referenced but not embedded.\n"
+            "  The 3D model requires an internet connection to load decoders from Google CDN.\n"
+            "  To embed them for offline use, download from:\n"
+            f"    https://www.gstatic.com/draco/versioned/decoders/{ver}/\n"
+            "  Place the files (draco_decoder.js, draco_wasm_wrapper.js, draco_decoder.wasm)\n"
+            "  in the build output directory before packaging, and point DRACOLoader at them."
+        )
 
     total_decoded = sum(a["decoded_bytes"] for a in assets)
     report = {
@@ -187,6 +319,8 @@ def main() -> int:
         "decoded_text_remaining_refs": decoded_text_refs,
         "tag_inline_refs": tag_inline_refs,
         "warnings": warnings,
+        "errors": errors,
+        "draco_warnings": draco_warnings,
         "assets": assets,
     }
 
@@ -241,14 +375,23 @@ def main() -> int:
                         break
                 if shown >= 30:
                     break
+        if errors:
+            print("\nErrors:")
+            for e in errors:
+                print(f"  - {e}")
+        if draco_warnings:
+            print("\nDraco decoder notice:")
+            for w in draco_warnings:
+                print(w)
         if warnings:
             print("\nWarnings:")
             for w in warnings:
                 print(f"  - {w}")
-        else:
-            print("\nNo warnings.")
+        if not errors and not warnings and not draco_warnings:
+            print("\nNo errors or warnings.")
 
-    return 1 if warnings and (args.fail_on_warning or args.strict) else 0
+    # Errors always fail. Warnings only fail under --fail-on-warning / --strict.
+    return 1 if errors or (warnings and (args.fail_on_warning or args.strict)) else 0
 
 
 if __name__ == "__main__":

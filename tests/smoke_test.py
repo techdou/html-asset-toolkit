@@ -346,12 +346,190 @@ def test_rename_update_html_scoped() -> None:
         )
 
 
+def test_p0_script_escape() -> None:
+    """tag mode must escape </script> inside inlined JS so the HTML parser does
+    not close the tag early. React/Vue minified runtimes almost always contain
+    the literal "</script>".
+    """
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        # JS source contains the exact string that breaks naive tag inlining.
+        js_with_close = (
+            'var fragment = "<script>doStuff()</script>";\n'
+            'var upper = "</SCRIPT>";\n'
+            'console.log(fragment, upper);\n'
+        )
+        (td_path / "app.js").write_text(js_with_close, encoding="utf-8")
+        # CSS source contains </style> as well.
+        css_with_close = 'body::after{content:"</style>";}\n'
+        (td_path / "style.css").write_text(css_with_close, encoding="utf-8")
+        html_src = (
+            '<!doctype html><html><head>\n'
+            '<link rel="stylesheet" href="style.css">\n'
+            '</head><body>\n'
+            '<script src="app.js"></script>\n'
+            '</body></html>\n'
+        )
+        entry = td_path / "index.html"
+        entry.write_text(html_src, encoding="utf-8")
+
+        run([sys.executable, "scripts/inline_assets.py", str(entry), "--css-js-mode", "tag", "--out", str(td_path / "out.html")])
+        out = (td_path / "out.html")
+        text = out.read_text(encoding="utf-8")
+        # The escaped form must be present...
+        assert r"<\/script>" in text, "tag mode should escape </script> as <\\/script>"
+        assert r"<\/style>" in text, "tag mode should escape </style> as <\\/style>"
+        # ...and no unescaped closing tag should appear inside the inline blocks.
+        # We check by extracting the inline script block the same way the
+        # validator does, then asserting no raw </script> remains.
+        import re
+        script_blocks = re.findall(
+            r"<script\b(?![^>]*\bsrc\s*=)[^>]*>(.*?)</script>", text, re.IGNORECASE | re.DOTALL,
+        )
+        assert script_blocks, "tag mode should produce an inline <script> block"
+        for block in script_blocks:
+            # Look for </script not preceded by a backslash.
+            assert not re.search(r"(?<!\\)</script", block, re.IGNORECASE), (
+                f"unescaped </script> remains inside inline script block: {block!r}"
+            )
+
+        # Validator must not report the unescaped-</script> error for this output.
+        val_cmd = [sys.executable, "scripts/validate_single_html.py", str(out), "--json"]
+        print("$", " ".join(val_cmd))
+        completed = subprocess.run(val_cmd, cwd=ROOT, check=True, capture_output=True, text=True)
+        report = json.loads(completed.stdout)
+        assert report["errors"] == [], f"validator should report no errors, got: {report['errors']}"
+
+        # Reverse test: a deliberately broken HTML (unescaped </script> inside
+        # an inline script, the React/Vue paired-literal form) MUST be caught.
+        broken = (
+            '<html><body>\n'
+            '<script>document.write("<script>hydration</script>")</script>\n'
+            '</body></html>\n'
+        )
+        broken_path = td_path / "broken.html"
+        broken_path.write_text(broken, encoding="utf-8")
+        bad_cmd = [sys.executable, "scripts/validate_single_html.py", str(broken_path), "--json"]
+        print("$", " ".join(bad_cmd))
+        bad_completed = subprocess.run(bad_cmd, cwd=ROOT, capture_output=True, text=True)
+        bad_report = json.loads(bad_completed.stdout)
+        assert bad_report["errors"], "validator must report an error for unescaped </script> in inline script"
+        assert bad_completed.returncode == 1, "broken HTML must cause non-zero exit code"
+
+
+def test_nextjs_fallback() -> None:
+    """Next.js dynamic import emits relative `static/chunks/x.js` refs but the
+    files live under `_next/static/chunks/`. The inliner should fall back to the
+    `_next/` directory automatically when it exists — no manual symlink needed.
+    """
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        # Mirror real Next.js export layout: out/_next/static/chunks/...
+        chunks_dir = td_path / "_next" / "static" / "chunks"
+        chunks_dir.mkdir(parents=True)
+        (chunks_dir / "model-a1b2.js").write_text(
+            'window.__loaded=true;console.log("chunk loaded");', encoding="utf-8",
+        )
+        media_dir = td_path / "_next" / "static" / "media"
+        media_dir.mkdir(parents=True)
+        (media_dir / "texture-a1b2.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+
+        # HTML references the chunks via the bare `static/...` form that
+        # Next.js dynamic() emits inside its runtime JS, AND a root-relative
+        # `/static/...` form. The entry script itself is referenced via /_next/
+        # which already resolves.
+        entry_js = td_path / "_next" / "static" / "chunks" / "app-entry.js"
+        entry_js.write_text(
+            'import("/static/chunks/model-a1b2.js");\n'
+            'var tex="/static/media/texture-a1b2.png";\n',
+            encoding="utf-8",
+        )
+        html_src = (
+            '<!doctype html><html><head></head><body>\n'
+            '<script src="/_next/static/chunks/app-entry.js"></script>\n'
+            '</body></html>\n'
+        )
+        entry = td_path / "index.html"
+        entry.write_text(html_src, encoding="utf-8")
+
+        run([sys.executable, "scripts/inline_assets.py", str(entry), "--css-js-mode", "tag", "--out", str(td_path / "out.html")])
+        out = td_path / "out.html"
+        manifest = json.loads(
+            (out.with_suffix(out.suffix + ".manifest.json")).read_text(encoding="utf-8")
+        )
+        inlined_sources = [e["source"] for e in manifest["entries"] if e["action"] == "inlined"]
+        assert "/static/chunks/model-a1b2.js" in inlined_sources, (
+            f"Next.js dynamic chunk should be inlined via _next fallback; "
+            f"inlined sources: {inlined_sources}"
+        )
+        assert "/static/media/texture-a1b2.png" in inlined_sources, (
+            f"Next.js media asset should be inlined via _next fallback; "
+            f"inlined sources: {inlined_sources}"
+        )
+        missing = [e for e in manifest["entries"] if e["action"] == "missing_or_external"
+                   and not e["source"].startswith(("http", "//", "data:"))]
+        assert not missing, f"no local refs should be missing, but got: {missing}"
+
+        text = out.read_text(encoding="utf-8")
+        assert "static/chunks/model-a1b2.js" not in text, "chunk path should be gone after inlining"
+
+
+def test_draco_warning() -> None:
+    """Validator should emit a dedicated Draco decoder warning when inline JS
+    references draco_decoder, and --strict must NOT fail because of it (works
+    online when the CDN is reachable).
+    """
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        td_path = Path(td)
+        draco_js = (
+            'var decoderPath = "https://www.gstatic.com/draco/versioned/decoders/1.5.5/";\n'
+            'loader.setDecoderPath(decoderPath);\n'
+            '// loads draco_decoder.js / draco_wasm_wrapper.js / draco_decoder.wasm\n'
+        )
+        (td_path / "app.js").write_text(draco_js, encoding="utf-8")
+        html_src = (
+            '<!doctype html><html><head></head><body>\n'
+            '<script src="app.js"></script>\n'
+            '</body></html>\n'
+        )
+        entry = td_path / "index.html"
+        entry.write_text(html_src, encoding="utf-8")
+
+        run([sys.executable, "scripts/inline_assets.py", str(entry), "--css-js-mode", "tag", "--out", str(td_path / "out.html")])
+        out = td_path / "out.html"
+
+        val_cmd = [sys.executable, "scripts/validate_single_html.py", str(out), "--json"]
+        print("$", " ".join(val_cmd))
+        completed = subprocess.run(val_cmd, cwd=ROOT, check=True, capture_output=True, text=True)
+        report = json.loads(completed.stdout)
+        assert report["draco_warnings"], "validator should report a Draco decoder warning"
+        draco_text = " ".join(report["draco_warnings"]).lower()
+        assert "draco" in draco_text
+        assert "gstatic" in draco_text, "Draco warning should point at the gstatic CDN URL"
+        assert report["errors"] == [], "Draco absence must not be an error"
+
+        # Under --strict, Draco-only warnings must not cause failure.
+        strict_cmd = [sys.executable, "scripts/validate_single_html.py", str(out), "--strict", "--json"]
+        print("$", " ".join(strict_cmd))
+        strict_completed = subprocess.run(strict_cmd, cwd=ROOT, capture_output=True, text=True)
+        assert strict_completed.returncode == 0, (
+            f"--strict should not fail on Draco-only warning; rc={strict_completed.returncode}, "
+            f"stderr={strict_completed.stderr[:300]}"
+        )
+
+
 def main() -> int:
     test_plain_course_html()
     test_react_vue_build_output()
     test_estimate_size()
     test_tag_inline_mode()
     test_validate_tag_mode()
+    test_p0_script_escape()
+    test_nextjs_fallback()
+    test_draco_warning()
     test_serve_preview()
     test_extract_style_script()
     test_rename_with_near_text()

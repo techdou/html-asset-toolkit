@@ -158,6 +158,86 @@ def escape_js_string_literal(value: str, quote: str) -> str:
     return escaped
 
 
+# Match closing </script> / </style> in any case so that raw JS/CSS text placed
+# inside an inline <script>/<style> tag cannot prematurely terminate it.
+# React/Vue minified runtimes almost always contain the literal "</script>".
+INLINE_CLOSE_TAG_RE = re.compile(r"</(script|style)", re.IGNORECASE)
+
+
+def escape_for_inline_tag(text: str) -> str:
+    """Escape </script> and </style> so raw JS/CSS text is safe inside inline tags.
+
+    Replaces the slash with a backslash: </script> -> <\\/script>. In JavaScript
+    `\\/` evaluates to `/` and in CSS `\\` is a valid escape, so the runtime
+    semantics are unchanged while the HTML parser no longer sees a closing tag.
+    """
+    return INLINE_CLOSE_TAG_RE.sub(r"<\\/\1", text)
+
+
+# Detect Three.js Draco decoder references and the CDN version URL in JS text.
+DRACO_REF_RE = re.compile(r"draco_decoder|draco_wasm_wrapper|DRACOLoader", re.IGNORECASE)
+DRACO_VERSION_RE = re.compile(r"gstatic\.com/draco/versioned/decoders/(\d+\.\d+\.\d+)(?!\.\d)", re.IGNORECASE)
+DRACO_DEFAULT_VERSION = "1.5.5"
+DRACO_DECODER_FILES = ("draco_decoder.js", "draco_wasm_wrapper.js", "draco_decoder.wasm")
+
+
+def fetch_cdn_draco(html_text: str, js_files: list[Path], dest_dir: Path) -> list[str]:
+    """Download Draco decoder files from Google CDN when JS references them.
+
+    Draco decoders are fetched at runtime by Three.js DRACOLoader from a CDN; an
+    offline single-file artifact cannot load them. This helper downloads the
+    three decoder files into ``dest_dir`` (typically ``<root>/draco/``) so the
+    user can point DRACOLoader at the local path.
+
+    Returns a list of human-readable notes (successes/skips/failures) for the
+    manifest and stdout. Network errors degrade to a note rather than aborting
+    the packaging run.
+    """
+    import urllib.error
+    import urllib.request
+
+    # Scan HTML + every JS file for a Draco reference and a version hint.
+    version = None
+    found_ref = False
+    blobs = [html_text]
+    for js_path in js_files:
+        try:
+            blobs.append(js_path.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            pass
+    for blob in blobs:
+        if DRACO_REF_RE.search(blob):
+            found_ref = True
+            vm = DRACO_VERSION_RE.search(blob)
+            if vm and not version:
+                version = vm.group(1)
+    if not found_ref:
+        return []
+
+    version = version or DRACO_DEFAULT_VERSION
+    base_url = f"https://www.gstatic.com/draco/versioned/decoders/{version}/"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    notes: list[str] = []
+    for fname in DRACO_DECODER_FILES:
+        target = dest_dir / fname
+        if target.exists():
+            notes.append(f"draco: {fname} already present, skipped")
+            continue
+        url = base_url + fname
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "html-asset-toolkit/1.0"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = resp.read()
+            target.write_bytes(data)
+            notes.append(f"draco: downloaded {fname} ({len(data)} bytes) -> {target}")
+        except (urllib.error.URLError, OSError) as exc:
+            notes.append(f"draco: FAILED to download {fname} from {url}: {exc}")
+    notes.append(
+        f"draco: decoder files target dir is {dest_dir}. "
+        "Ensure DRACOLoader.setDecoderPath points at this local path for full offline support."
+    )
+    return notes
+
 
 @dataclass
 class InlineResult:
@@ -196,13 +276,18 @@ def strip_query_fragment(url: str) -> str:
     return unquote(parsed.path)
 
 
-def resolve_asset(url: str, base_dir: Path, assets_root: Path | None, root_dir: Path | None) -> Path | None:
+def resolve_asset(url: str, base_dir: Path, assets_root: Path | None, root_dir: Path | None, next_fallback_roots: list[Path] | None = None) -> Path | None:
     """Resolve an HTML/CSS/JS asset URL to a local file.
 
     Root-relative browser URLs such as `/assets/app.js` are common in Vite,
     Vue CLI, and Create React App production builds. They are not filesystem
     absolute paths for this tool; by default they are resolved under `root_dir`,
     which is the input HTML directory unless overridden with `--root-dir`.
+
+    `next_fallback_roots` is an optional list of `_next/` subdirectories to try
+    when the regular roots miss. Next.js `dynamic()` imports emit bare
+    `static/chunks/x.js` references whose real files live under `_next/static/`;
+    this fallback resolves them without requiring a manual symlink.
     """
     if is_external_or_special(url):
         return None
@@ -242,6 +327,19 @@ def resolve_asset(url: str, base_dir: Path, assets_root: Path | None, root_dir: 
         seen.add(key)
         if path.exists() and path.is_file():
             return path.resolve()
+
+    # Next.js fallback: bare `static/chunks/x.js` references emitted by
+    # dynamic(() => import(...)) live under `_next/static/`. When a `_next/`
+    # directory exists, retry the candidate beneath it.
+    if next_fallback_roots:
+        for root in next_fallback_roots:
+            path = root / candidate
+            key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            if path.exists() and path.is_file():
+                return path.resolve()
     return None
 
 
@@ -351,8 +449,19 @@ def make_inliner(args: argparse.Namespace, html_dir: Path, manifest: list[Inline
     total = {"bytes": 0, "errors": 0}
     active: set[str] = set()
 
+    # Next.js export layout puts build assets under `_next/`. When that
+    # directory exists, bare `static/chunks/x.js` references emitted by
+    # dynamic() imports are retried under `<root>/_next/`. Computed once so
+    # we don't stat() on every resolve_asset call.
+    next_fallback_roots: list[Path] = []
+    for root in (args.root_dir, html_dir, args.assets_root):
+        if root and (root / "_next").is_dir():
+            next_root = root / "_next"
+            if next_root not in next_fallback_roots:
+                next_fallback_roots.append(next_root)
+
     def inline_url(url: str, context: str, base_dir: Path = html_dir) -> str:
-        path = resolve_asset(url, base_dir, args.assets_root, args.root_dir)
+        path = resolve_asset(url, base_dir, args.assets_root, args.root_dir, next_fallback_roots or None)
         if path is None:
             manifest.append(InlineResult(url, None, None, None, None, context, "missing_or_external"))
             total["errors"] += 1 if args.strict and not is_external_or_special(url) else 0
@@ -474,7 +583,7 @@ def inline_html(html: str, args: argparse.Namespace, html_dir: Path) -> tuple[st
         tag = match.group(0)
         media = extract_attr_value(tag, "media")
         media_attr = f' media="{media}"' if media else ""
-        return f"<style{media_attr}>\n{css_text}\n</style>"
+        return f"<style{media_attr}>\n{escape_for_inline_tag(css_text)}\n</style>"
 
     def repl_script_src_tag(match: re.Match) -> str:
         url = match.group("url")
@@ -488,7 +597,7 @@ def inline_html(html: str, args: argparse.Namespace, html_dir: Path) -> tuple[st
         type_val = extract_attr_value(f"<script{attrs}>", "type")
         if type_val:
             type_attr = f' type="{type_val}"'
-        return f"{open_tag}{type_attr}>\n{js_text}\n</script>"
+        return f"{open_tag}{type_attr}>\n{escape_for_inline_tag(js_text)}\n</script>"
 
     # In tag mode, process link/script before the generic attribute pass so
     # they are consumed as whole elements rather than individual href/src.
@@ -575,7 +684,7 @@ def main() -> int:
     parser.add_argument("--single-name", default=None, help="Output filename when --out is not used. Example: index.single.html")
     parser.add_argument("--assets-root", type=Path, default=None, help="Additional asset lookup root. Relative paths resolve beside the input HTML.")
     parser.add_argument("--root-dir", type=Path, default=None, help="Static site root for browser-root-relative URLs like /assets/app.js. Relative paths resolve beside the input HTML. Defaults to the input HTML directory.")
-    parser.add_argument("--preset", choices=["generic", "react-vue-build", "vite", "create-react-app", "vue-cli"], default="generic", help="Documentation/manifest preset for static frontend build packaging.")
+    parser.add_argument("--preset", choices=["generic", "react-vue-build", "vite", "create-react-app", "vue-cli", "nextjs"], default="generic", help="Documentation/manifest preset for static frontend build packaging. Use `nextjs` for Next.js `output: 'export'` builds; the `_next/` path fallback is enabled automatically whenever a `_next/` directory is detected, regardless of preset.")
     parser.add_argument("--manifest", type=Path, default=None)
     parser.add_argument("--include-ext", default=None)
     parser.add_argument("--exclude-ext", default=None)
@@ -595,6 +704,7 @@ def main() -> int:
     parser.add_argument("--no-css", action="store_true", help="Skip CSS inlining (tag-mode <link stylesheet> and CSS @import). Backward-compat alias for --exclude-ext .css.")
     parser.add_argument("--no-js", action="store_true", help="Skip JS inlining (tag-mode <script src> and JS asset strings). Backward-compat alias for --exclude-ext .js,.mjs.")
     parser.add_argument("--css-prepend", default=None, help="Text prepended to every inlined CSS block before it is embedded. Useful for injecting CSS resets or overrides at the top of each inlined stylesheet.")
+    parser.add_argument("--fetch-cdn", choices=["off", "draco"], default="off", help="Download referenced CDN-only assets into the build dir before packaging. `draco` fetches the Three.js Draco decoder files (gstatic.com) so they can be used offline. Default off; requires network access when enabled.")
     args = parser.parse_args()
 
     # Normalize --no-css/--no-js into include/exclude-ext filters so they work
@@ -624,6 +734,26 @@ def main() -> int:
     manifest_path = project_relative(args.manifest, args.input_html).resolve() if args.manifest else out_path.with_suffix(out_path.suffix + ".manifest.json")
 
     html = args.input_html.read_text(encoding="utf-8")
+
+    # Optional CDN pre-fetch (currently Draco only). Done before inlining so the
+    # downloaded files are available as local assets during the inline pass.
+    cdn_notes: list[str] = []
+    if args.fetch_cdn == "draco" and not args.dry_run:
+        # Compute _next fallback roots the same way make_inliner does, so the
+        # pre-scan resolves Next.js dynamic-import chunks for Draco detection.
+        next_roots: list[Path] = []
+        for root in (args.root_dir, args.input_html.parent, args.assets_root):
+            if root and (root / "_next").is_dir():
+                nr = root / "_next"
+                if nr not in next_roots:
+                    next_roots.append(nr)
+        js_files: list[Path] = []
+        for m in SCRIPT_SRC_RE.finditer(html):
+            resolved = resolve_asset(m.group("url"), args.input_html.parent, args.assets_root, args.root_dir, next_roots or None)
+            if resolved:
+                js_files.append(resolved)
+        cdn_notes = fetch_cdn_draco(html, js_files, args.root_dir / "draco")
+
     result_html, entries, errors = inline_html(html, args, args.input_html.parent.resolve())
     if args.remove_integrity:
         result_html = remove_integrity_attrs(result_html)
@@ -645,6 +775,8 @@ def main() -> int:
         "build_context": detect_build_context(args.input_html),
         "root_dir": str(args.root_dir),
         "frontend_build_entry": is_frontend_build_entry(args.input_html),
+        "fetch_cdn": args.fetch_cdn,
+        "cdn_notes": cdn_notes,
         "output_relative_to_input_dir": str(out_path.relative_to(args.input_html.parent)) if out_path.is_relative_to(args.input_html.parent) else str(out_path),
         "summary": {
             "references_seen": len(entries),
@@ -674,6 +806,10 @@ def main() -> int:
         local_missing = [e for e in missing if not is_external_or_special(e.source)]
         if local_missing:
             print(f"Missing local references: {len(local_missing)}")
+    if cdn_notes:
+        print("CDN fetch notes:")
+        for note in cdn_notes:
+            print(f"  - {note}")
     if not args.dry_run:
         print(f"Manifest: {manifest_path}")
     return 1 if errors else 0

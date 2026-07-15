@@ -56,3 +56,14 @@ var logo = "data:image/svg+xml;base64,PHN2...";
 ## Validation in tag mode
 
 `validate_single_html.py` detects inline `<style>` and `<script>` blocks and scans their content for residual local references, reporting them under `tag_inline_refs` in the JSON output. This catches the same class of bugs as `decoded_text_remaining_refs` but for tag-mode output.
+
+Additionally, the validator reports an **error** (not a warning) when it detects an unescaped `</script>` or `</style>` inside inline tag content. The detection uses a small state machine that mimics the HTML parser's raw-text state: it walks each inline `<script>`/`<style>` block, skips the escaped form `<\/script>` (backslash before the slash, which the parser does not treat as a closing tag), and treats the first unescaped `</tag` as the real closing tag. If that closing tag is followed by more content that itself contains an unescaped `</tag>`, the block was truncated early — the rest of the JS/CSS leaks as visible text and breaks the page. This is always a hard failure regardless of `--strict`.
+
+## Why tag mode must escape `</script>`
+
+HTML parsing rules say the first `</script>` inside a `<script>` block closes it — even inside a JS string literal. React/Vue minified runtimes almost always contain the substring `</script>` (template fragments, SSR hydration data, etc.). Tag mode therefore rewrites every `</script>` → `<\/script>` and `</style>` → `<\/style>` before placing raw JS/CSS into the inline tags. The escape is semantically transparent:
+
+- **JS**: `\/` is a valid escape sequence evaluating to `/`.
+- **CSS**: `\` is a valid escape character.
+
+Runtime behavior is unchanged; only the HTML byte stream sees a backslash where it would otherwise see a closing tag.

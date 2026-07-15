@@ -145,6 +145,22 @@ Single-file packaging is best for demos and offline teaching. It does not replac
 
 For demos, prefer hash routing or a single landing route.
 
+## Next.js static export (`output: 'export'`)
+
+Next.js produces an `out/` directory whose build assets live under `out/_next/`. Two specifics are handled automatically — no manual symlink or path fixup is needed:
+
+1. **Dynamic import chunk paths**: `dynamic(() => import('@/components/xxx'), { ssr: false })` generates bare `static/chunks/xxx.js` references inside the runtime JS (no `/_next/` prefix), but the real files sit at `_next/static/chunks/xxx.js`. When the inliner detects a `_next/` subdirectory under the build root, it retries every unresolved `static/...` reference under `_next/` automatically. This covers both HTML-level references and strings scanned from inside JS (`js_string` / `js_file_string` contexts).
+
+2. **`--preset nextjs`**: a manifest/documentation marker for Next.js exports. The `_next/` fallback is driven by directory detection and fires regardless of preset, so `react-vue-build` works identically — use `nextjs` only when you want the manifest to record the framework explicitly.
+
+```bash
+npm run build
+python scripts/inline_assets.py out/index.html --preset nextjs --css-js-mode tag
+python scripts/validate_single_html.py out/index.single.html
+```
+
+You no longer need the temporary `out/static -> out/_next/static` symlink workaround previous users applied.
+
 ## Known limits
 
 - External CDN resources are not fetched or embedded by default.

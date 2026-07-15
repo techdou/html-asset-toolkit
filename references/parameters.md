@@ -55,7 +55,7 @@ python scripts/inline_assets.py index.html --out dist/index.single.html
 | `--single-name` | `<stem>.single.html` | 不使用 `--out` 时的输出文件名，例如 `index.single.html` |
 | `--assets-root` | 空 | 额外资源根目录；用于 HTML 相对路径找不到时补充查找；相对路径按输入 HTML 所在目录解析 |
 | `--root-dir` | 输入 HTML 所在目录 | 浏览器根路径 `/assets/app.js` 的解析根目录；React/Vue/Vite 构建产物通常不用手动指定 |
-| `--preset` | `generic` | 构建场景标记：`generic`、`react-vue-build`、`vite`、`create-react-app`、`vue-cli`；主要写入 manifest，便于 Agent 判断 |
+| `--preset` | `generic` | 构建场景标记：`generic`、`react-vue-build`、`vite`、`create-react-app`、`vue-cli`、`nextjs`；主要写入 manifest，便于 Agent 判断。Next.js 的 `_next/` 路径回退由目录检测自动驱动，不限 preset |
 | `--manifest` | `{out}.manifest.json` | 嵌入结果清单；相对路径按输入 HTML 所在目录解析 |
 | `--include-ext` | 空 | 只嵌入指定扩展名，如 `.png,.jpg,.mp3,.glb,.css,.js` |
 | `--exclude-ext` | 空 | 排除指定扩展名 |
@@ -78,6 +78,7 @@ python scripts/inline_assets.py index.html --out dist/index.single.html
 | `--no-css` | `False` | 跳过 CSS 内联（tag 模式 `<link stylesheet>` 和 CSS `@import`）；内部等价于追加 `--exclude-ext .css`，与 `--include-ext` 组合生效 |
 | `--no-js` | `False` | 跳过 JS 内联（tag 模式 `<script src>` 和 JS 资源字符串）；内部等价于追加 `--exclude-ext .js,.mjs` |
 | `--css-prepend` | 空 | 在每个被内联的 CSS 块开头注入的文本；data-url 和 tag 模式都生效；适合注入 CSS reset 或全局覆盖规则 |
+| `--fetch-cdn` | `off` | 打包前下载 CDN-only 资源到构建目录：`off`（默认）/`draco`（Three.js Draco 解码器，从 gstatic.com 下载到 `<root-dir>/draco/`）。需要联网；下载失败降级为提示不中断 |
 
 ## estimate_size.py — 预估最终体积（不写文件）
 
@@ -169,6 +170,8 @@ python scripts/validate_single_html.py dist/index.single.html
 - 剩余 JS 本地资源字符串，包括 `"..."`、`'...'` 和静态反引号模板字符串。
 - 解码嵌入后的 text/css、text/javascript Data URL，并扫描内部残留本地路径。
 - HTML 总体积和单资源大文件风险。
+- 内联 `<script>`/`<style>` 内容含未转义的 `</script>`/`</style>`：报告为 **error**（硬性错误，无论是否 `--strict` 都会导致返回失败码）。检测用状态机模拟 HTML 解析器的 raw-text 状态，跳过转义的 `<\/tag`，识别真实闭标签，覆盖 React/Vue 产物里成对 `<script>...</script>` 字面量的场景。
+- Three.js Draco 解码器引用：报告为可恢复的专用 warning（`draco_warnings` 字段），`--strict` 下不致命；联网环境功能正常。
 
 ## extract_assets.py — 提取内嵌资源
 
